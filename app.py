@@ -177,4 +177,53 @@ with tab2:
         girilen_tarih = col_tarih.date_input("İşlem Tarihi", value=datetime.date.today())
         girilen_saat = col_saat.time_input("İşlem Saati", value=datetime.datetime.now().time())
 
-        islem_
+        islem_turu = st.selectbox(
+            "İşlem Türü", 
+            ["Arıza Onarımı", "Periyodik Bakım", "Parça Değişimi", "Garnitür / Planga Ayarı", "Temizlik / Yağlama", "Sensör / Elektronik"]
+        )
+        aciklama = st.text_area("Yapılan İşlem / Arıza Sebebi", placeholder="Arıza detayını yazın...")
+        parcalar = st.text_input("Değişen Yedek Parçalar", placeholder="Parça kodu veya adı...")
+        teknisyen = st.text_input("Müdahaleyi Yapan", value=st.session_state.username)
+
+        kaydet = st.form_submit_button("💾 Kaydı Buluta İşle", use_container_width=True)
+        if kaydet:
+            if not aciklama.strip():
+                st.error("Lütfen arıza veya işlem açıklamasını doldurun!")
+            else:
+                tarih_saat_str = f"{girilen_tarih.strftime('%Y-%m-%d')} {girilen_saat.strftime('%H:%M')}"
+                conn = get_connection()
+                cur = conn.cursor()
+                cur.execute("""
+                    INSERT INTO maintenance_records (machine_id, record_type, description, parts_replaced, technician, record_date)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                """, (secilen_id, islem_turu, aciklama.strip(), parcalar.strip(), teknisyen.strip(), tarih_saat_str))
+                conn.commit()
+                conn.close()
+                st.success("Kayıt bulut veritabanına başarıyla işlendi!")
+                st.rerun()
+
+# TAB 3: EXCEL RAPORU
+with tab3:
+    st.subheader("Makine Bakım Raporunu İndir")
+    kayitlar = load_records(secilen_id)
+    if kayitlar.empty:
+        st.info("İndirilecek kayıt bulunmuyor.")
+    else:
+        rapor_df = kayitlar.drop(columns=['id']).rename(columns={
+            'record_date': 'Tarih',
+            'record_type': 'İşlem',
+            'description': 'Müdahale',
+            'parts_replaced': 'Değişen Parça',
+            'technician': 'Teknisyen'
+        })
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+            rapor_df.to_excel(writer, index=False, sheet_name="Gecmis")
+        
+        st.download_button(
+            label="📊 Excel İndir (.xlsx)",
+            data=buffer.getvalue(),
+            file_name=f"{m_detay['code']}_Bakim_Raporu.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
