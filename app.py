@@ -24,7 +24,7 @@ def get_connection():
 ORTAK_SIFRE = "iplik6"
 
 YETKILI_KULLANICILAR = [
-    "ahmet",
+    "mbendes",
     "r_şahin", "r_sahin",
     "n_ertürk", "n_erturk",
     "g_albayrak",
@@ -32,7 +32,12 @@ YETKILI_KULLANICILAR = [
     "m_karahan",
     "m_bay",
     "e_candan",
-    "l_yaşar", "l_yasar"
+    "l_yaşar","l_yasar",
+    "a_gültekin","a_gultekin",
+    "g_gümüş","g_gumus",
+    "g_göktaş","g_goktas",
+    "a_öztürk","a_ozturk",
+    "f_duran"
 ]
 
 # --- OTURUM (LOGIN) YÖNETİMİ ---
