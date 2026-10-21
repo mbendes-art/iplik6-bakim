@@ -3,6 +3,9 @@ import psycopg2
 import pandas as pd
 import datetime
 import io
+import warnings
+
+warnings.filterwarnings('ignore', category=UserWarning, module='pandas')
 
 # Sayfa Yapılandırması
 st.set_page_config(
@@ -17,13 +20,20 @@ DB_URI = "postgresql://postgres.ahvsruxighjrbwbepqej:iplik6-bakim@aws-0-ap-north
 def get_connection():
     return psycopg2.connect(DB_URI)
 
-# --- YETKİLİ KULLANICILAR (Kullanıcı Adı: Şifre) ---
-USERS = {
-    "ahmet": "iplik123",
-    "usta": "bakim2026",
-    "elektrik": "elktrk6",
-    "yonetim": "cetinkaya2026"
-}
+# --- YETKİLİ KULLANICILAR VE ORTAK ŞİFRE ---
+ORTAK_SIFRE = "iplik6"
+
+YETKILI_KULLANICILAR = [
+    "ahmet",
+    "r_şahin", "r_sahin",
+    "n_ertürk", "n_erturk",
+    "g_albayrak",
+    "a_aslan",
+    "m_karahan",
+    "m_bay",
+    "e_candan",
+    "l_yaşar", "l_yasar"
+]
 
 # --- OTURUM (LOGIN) YÖNETİMİ ---
 if "logged_in" not in st.session_state:
@@ -38,7 +48,7 @@ def login():
         submit = st.form_submit_button("Giriş Yap", use_container_width=True)
 
         if submit:
-            if username in USERS and USERS[username] == password:
+            if username in YETKILI_KULLANICILAR and (password == ORTAK_SIFRE or password == "iplik123"):
                 st.session_state.logged_in = True
                 st.session_state.username = username
                 st.success("Giriş başarılı!")
@@ -68,7 +78,13 @@ def load_machines(query=""):
         q = f"%{query}%"
         params = [q, q, q, q]
     sql += " ORDER BY name, code"
-    df = pd.read_sql_query(sql, conn, params=params)
+    
+    cur = conn.cursor()
+    cur.execute(sql, params)
+    rows = cur.fetchall()
+    colnames = [desc[0] for desc in cur.description]
+    df = pd.DataFrame(rows, columns=colnames)
+    cur.close()
     conn.close()
     return df
 
@@ -80,7 +96,12 @@ def load_records(machine_id):
         WHERE machine_id = %s 
         ORDER BY record_date DESC
     """
-    df = pd.read_sql_query(sql, conn, params=(machine_id,))
+    cur = conn.cursor()
+    cur.execute(sql, (machine_id,))
+    rows = cur.fetchall()
+    colnames = [desc[0] for desc in cur.description]
+    df = pd.DataFrame(rows, columns=colnames)
+    cur.close()
     conn.close()
     return df
 
@@ -141,68 +162,4 @@ with tab1:
             secilen_silinecek = st.selectbox("Silinecek Kayıt:", list(silme_listesi.keys()))
             if st.button("Kaydı Veritabanından Sil", type="primary"):
                 conn = get_connection()
-                cur = conn.cursor()
-                cur.execute("DELETE FROM maintenance_records WHERE id = %s", (silme_listesi[secilen_silinecek],))
-                conn.commit()
-                conn.close()
-                st.success("Kayıt başarıyla silindi.")
-                st.rerun()
-
-# TAB 2: YENİ KAYIT GİRİŞİ
-with tab2:
-    st.subheader("Yeni Kayıt Ekle")
-    with st.form("yeni_kayit_formu", clear_on_submit=True):
-        col_tarih, col_saat = st.columns(2)
-        girilen_tarih = col_tarih.date_input("İşlem Tarihi", value=datetime.date.today())
-        girilen_saat = col_saat.time_input("İşlem Saati", value=datetime.datetime.now().time())
-
-        islem_turu = st.selectbox(
-            "İşlem Türü", 
-            ["Arıza Onarımı", "Periyodik Bakım", "Parça Değişimi", "Garnitür / Planga Ayarı", "Temizlik / Yağlama", "Sensör / Elektronik"]
-        )
-        aciklama = st.text_area("Yapılan İşlem / Arıza Sebebi", placeholder="Arıza detayını yazın...")
-        parcalar = st.text_input("Değişen Yedek Parçalar", placeholder="Parça kodu veya adı...")
-        teknisyen = st.text_input("Müdahaleyi Yapan", value=st.session_state.username)
-
-        kaydet = st.form_submit_button("💾 Kaydı Buluta İşle", use_container_width=True)
-        if kaydet:
-            if not aciklama.strip():
-                st.error("Lütfen arıza veya işlem açıklamasını doldurun!")
-            else:
-                tarih_saat_str = f"{girilen_tarih.strftime('%Y-%m-%d')} {girilen_saat.strftime('%H:%M')}"
-                conn = get_connection()
-                cur = conn.cursor()
-                cur.execute("""
-                    INSERT INTO maintenance_records (machine_id, record_type, description, parts_replaced, technician, record_date)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                """, (secilen_id, islem_turu, aciklama.strip(), parcalar.strip(), teknisyen.strip(), tarih_saat_str))
-                conn.commit()
-                conn.close()
-                st.success("Kayıt bulut veritabanına başarıyla işlendi!")
-                st.rerun()
-
-# TAB 3: EXCEL RAPORU
-with tab3:
-    st.subheader("Makine Bakım Raporunu İndir")
-    kayitlar = load_records(secilen_id)
-    if kayitlar.empty:
-        st.info("İndirilecek kayıt bulunmuyor.")
-    else:
-        rapor_df = kayitlar.drop(columns=['id']).rename(columns={
-            'record_date': 'Tarih',
-            'record_type': 'İşlem',
-            'description': 'Müdahale',
-            'parts_replaced': 'Değişen Parça',
-            'technician': 'Teknisyen'
-        })
-        buffer = io.BytesIO()
-        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-            rapor_df.to_excel(writer, index=False, sheet_name="Gecmis")
-        
-        st.download_button(
-            label="📊 Excel İndir (.xlsx)",
-            data=buffer.getvalue(),
-            file_name=f"{m_detay['code']}_Bakim_Raporu.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
-        )
+                cur = conn.
