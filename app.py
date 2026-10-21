@@ -162,4 +162,19 @@ with tab1:
             secilen_silinecek = st.selectbox("Silinecek Kayıt:", list(silme_listesi.keys()))
             if st.button("Kaydı Veritabanından Sil", type="primary"):
                 conn = get_connection()
-                cur = conn.
+                cur = conn.cursor()
+                cur.execute("DELETE FROM maintenance_records WHERE id = %s", (silme_listesi[secilen_silinecek],))
+                conn.commit()
+                conn.close()
+                st.success("Kayıt başarıyla silindi.")
+                st.rerun()
+
+# TAB 2: YENİ KAYIT GİRİŞİ
+with tab2:
+    st.subheader("Yeni Kayıt Ekle")
+    with st.form("yeni_kayit_formu", clear_on_submit=True):
+        col_tarih, col_saat = st.columns(2)
+        girilen_tarih = col_tarih.date_input("İşlem Tarihi", value=datetime.date.today())
+        girilen_saat = col_saat.time_input("İşlem Saati", value=datetime.datetime.now().time())
+
+        islem_
