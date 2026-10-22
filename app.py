@@ -33,7 +33,6 @@ def dogal_sirala(metin):
     return [int(p) if p.isdigit() else p.lower() for p in re.split(r'(\d+)', str(metin))]
 
 # --- KULLANICI LİSTELERİ VE YETKİLER ---
-# 'ahmet' kullanıcı adı listeden çıkarıldı
 TAM_YETKILI_YONETICILER = [
     "mbendes", "r_şahin", "r_sahin", "n_ertürk", "n_erturk", "g_albayrak"
 ]
@@ -72,7 +71,6 @@ if "secili_makine_id" not in st.session_state:
     st.session_state.secili_makine_id = None
 
 def normalize_text(text):
-    """Türkçe İ/ı ve büyük/küçük harf duyarlılığını ortadan kaldırır."""
     if not text:
         return ""
     text = text.strip()
@@ -93,7 +91,6 @@ def login():
 
         if submit:
             norm_pass = normalize_text(password)
-            # iplik6, IPLIK6, İPLİK6 veya iplik123 kabul edilir
             if username in YETKILI_KULLANICILAR and (norm_pass == "iplik6" or norm_pass == "iplik123"):
                 st.session_state.logged_in = True
                 st.session_state.username = username
@@ -161,7 +158,7 @@ def load_all_machines():
 
 all_machines = load_all_machines()
 
-# Yetkiye göre makineleri sınırla
+# Yetkiye göre makineleri filtrele
 user = st.session_state.username
 if user in IHZARAT_KULLANICILARI:
     regex_pattern = "|".join(IHZARAT_KELIMELERI)
@@ -176,19 +173,11 @@ else:
 st.sidebar.header("🔍 Hızlı Makine Arama")
 search_term = st.sidebar.text_input("Makine Adı veya No", placeholder="Örn: CER, RING, 5...").strip().lower()
 
-filtreli_df = user_machines.copy()
-if search_term:
-    filtreli_df = filtreli_df[
-        filtreli_df['name'].str.lower().str.contains(search_term) |
-        filtreli_df['code'].str.lower().str.contains(search_term) |
-        filtreli_df['no'].str.lower().str.contains(search_term)
-    ]
+user_machines['secim_adi'] = user_machines['name'] + " (" + user_machines['code'] + ")"
+sirali_makineler = sorted(user_machines['secim_adi'].unique(), key=dogal_sirala)
+secenekler = dict(zip(user_machines['secim_adi'], user_machines['id']))
 
-filtreli_df['secim_adi'] = filtreli_df['name'] + " (" + filtreli_df['code'] + ")"
-sirali_makineler = sorted(filtreli_df['secim_adi'].unique(), key=dogal_sirala)
-secenekler = dict(zip(filtreli_df['secim_adi'], filtreli_df['id']))
-
-# Sol menüden seçim kutusu
+# Sol menüden açılır liste ile seçim
 secilen_kutu = st.sidebar.selectbox(
     "Veya Listeden Seçiniz", 
     sirali_makineler, 
@@ -239,31 +228,45 @@ def load_recent_20():
 # --- ANA EKRAN ---
 st.title("🧵 İplik-6 | Arıza & Bakım Takip Portalı")
 
-# Arama Sonuçları Butonları
-st.markdown(f"### 🔍 Makine Listesi ({len(filtreli_df)} Makine Mevcut)")
-cols = st.columns(3)
-for idx, (_, row) in enumerate(filtreli_df.iterrows()):
-    col = cols[idx % 3]
-    is_selected = (st.session_state.secili_makine_id == row['id'])
-    btn_type = "primary" if is_selected else "secondary"
-    btn_label = f"⚙️ {row['code']} ({row['machine_type']})"
-    
-    if col.button(btn_label, key=f"btn_{row['id']}", type=btn_type, use_container_width=True):
-        st.session_state.secili_makine_id = row['id']
-        st.rerun()
+# SADECE ARAMA KUTUSUNA YAZILDIĞINDA MAKİNE BUTONLARINI GÖSTER
+if search_term:
+    filtreli_df = user_machines[
+        user_machines['name'].str.lower().str.contains(search_term) |
+        user_machines['code'].str.lower().str.contains(search_term) |
+        user_machines['no'].str.lower().str.contains(search_term)
+    ].copy()
 
-st.divider()
+    st.markdown(f"### 🔍 **'{search_term.upper()}'** Arama Sonuçları ({len(filtreli_df)} Makine Bulundu)")
+    if filtreli_df.empty:
+        st.warning(f"Yetki alanınızda '{search_term}' ile eşleşen makine bulunamadı.")
+    else:
+        cols = st.columns(3)
+        for idx, (_, row) in enumerate(filtreli_df.iterrows()):
+            col = cols[idx % 3]
+            is_selected = (st.session_state.secili_makine_id == row['id'])
+            btn_type = "primary" if is_selected else "secondary"
+            btn_label = f"⚙️ {row['code']} ({row['machine_type']})"
+            
+            if col.button(btn_label, key=f"btn_{row['id']}", type=btn_type, use_container_width=True):
+                st.session_state.secili_makine_id = row['id']
+                st.rerun()
 
-# Henüz hiçbir butona basılmamışsa
+    st.divider()
+
+# Henüz hiçbir makine seçilmediyse
 if not st.session_state.secili_makine_id:
-    st.info("👆 Lütfen arıza girmek veya geçmişi görmek istediğiniz **makinenin butonuna basınız**.")
+    if not search_term:
+        st.info("👈 İşlem yapmak için sol menüdeki **'Hızlı Makine Arama'** alanına makine adı/no yazın veya **'Veya Listeden Seçiniz'** kutusundan makine seçin.")
+    else:
+        st.info("👆 Lütfen yukarıdaki arama sonuçlarından işlem yapmak istediğiniz **makinenin butonuna basınız**.")
+        
     st.subheader("🔔 Son Girilen 20 Kayıt")
     son_kayitlar = load_recent_20()
     if not son_kayitlar.empty:
         st.dataframe(son_kayitlar, use_container_width=True, hide_index=True)
     st.stop()
 
-# Butona basıldığında açılan işlem paneli
+# Makine seçildiğinde gösterilecek form ve detay alanı:
 secili_makine_kaydi = user_machines[user_machines['id'] == st.session_state.secili_makine_id]
 if secili_makine_kaydi.empty:
     st.warning("Seçilen makine bulunamadı.")
