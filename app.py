@@ -35,7 +35,6 @@ def get_connection():
 # --- ORTAK ŞİFRE VE KULLANICI YETKİ GRUPLARI ---
 ORTAK_SIFRE = "iplik6"
 
-# 1. TÜM MAKİNELERDE (iplik6MakineListesi - 125 Makine) TAM YETKİLİ OLANLAR
 TAM_YETKILI_YONETICILER = [
     "mbendes",
     "ahmet",
@@ -44,7 +43,6 @@ TAM_YETKILI_YONETICILER = [
     "g_albayrak"
 ]
 
-# 2. SADECE İHZARAT MAKİNELERİNİ GÖRECEK EKİP
 IHZARAT_KULLANICILARI = [
     "a_gültekin", "a_gultekin",
     "g_gümüş", "g_gumus",
@@ -52,7 +50,6 @@ IHZARAT_KULLANICILARI = [
     "a_öztürk", "a_ozturk"
 ]
 
-# 3. SADECE RING / BOBİN / PAKETLEME MAKİNELERİNİ GÖRECEK EKİP
 RING_BOBIN_KULLANICILARI = [
     "a_aslan",
     "m_karahan",
@@ -61,10 +58,8 @@ RING_BOBIN_KULLANICILARI = [
     "l_yaşar", "l_yasar"
 ]
 
-# Sisteme girebilecek tüm kullanıcılar
 YETKILI_KULLANICILAR = TAM_YETKILI_YONETICILER + IHZARAT_KULLANICILARI + RING_BOBIN_KULLANICILARI + ["f_duran"]
 
-# Makine Filtreleme Grupları
 IHZARAT_MAKINELERI = [
     "UNIFLOC", "UNICLEAN", "UNIMİX", "UNISTORE", "KONDENSER",
     "VSI", "TELEF", "TARAK", "CER", "OMEGALLAP", "SERVOLAB",
@@ -114,7 +109,6 @@ with st.sidebar:
         
     st.write(f"👤 Aktif Kullanıcı: **{st.session_state.username}**")
     
-    # Kullanıcı rolüne göre yetki etiketi
     if st.session_state.username in TAM_YETKILI_YONETICILER:
         st.success("🏭 Yetki: **Tüm Fabrika (Tam Yetki)**")
     elif st.session_state.username in IHZARAT_KULLANICILARI:
@@ -135,21 +129,17 @@ def load_machines(query=""):
     sql = "SELECT id, code, name, location, machine_type, serial_no, brand, model_year FROM machines WHERE 1=1"
     params = []
     
-    # İhzarat ekibi filtresi
     if st.session_state.username in IHZARAT_KULLANICILARI:
         filtreler = " OR ".join(["name ILIKE %s OR code ILIKE %s" for _ in IHZARAT_MAKINELERI])
         sql += f" AND ({filtreler})"
         for m in IHZARAT_MAKINELERI:
             params.extend([f"%{m}%", f"%{m}%"])
 
-    # Ring / Bobin ekibi filtresi
     elif st.session_state.username in RING_BOBIN_KULLANICILARI:
         filtreler = " OR ".join(["name ILIKE %s OR code ILIKE %s" for _ in RING_BOBIN_MAKINELERI])
         sql += f" AND ({filtreler})"
         for m in RING_BOBIN_MAKINELERI:
             params.extend([f"%{m}%", f"%{m}%"])
-
-    # TAM_YETKILI_YONETICILER ("mbendes", "r_şahin", "n_ertürk", "g_albayrak") herhangi bir kısıtlamaya takılmaz; 125 makinenin tamamını görür.
 
     if query:
         sql += " AND (code ILIKE %s OR name ILIKE %s OR location ILIKE %s OR machine_type ILIKE %s)"
@@ -184,7 +174,55 @@ def load_records(machine_id):
     conn.close()
     return df
 
+def load_recent_20_records():
+    conn = get_connection()
+    sql = """
+        SELECT 
+            m.name AS "Makine Adı",
+            m.code AS "Makine Kodu",
+            r.record_date AS "Tarih / Saat",
+            r.record_type AS "İşlem Türü",
+            r.description AS "Müdahale Açıklaması",
+            r.parts_replaced AS "Değişen Parça",
+            r.technician AS "Teknisyen"
+        FROM maintenance_records r
+        JOIN machines m ON r.machine_id = m.id
+        WHERE 1=1
+    """
+    params = []
+    if st.session_state.username in IHZARAT_KULLANICILARI:
+        filtreler = " OR ".join(["m.name ILIKE %s OR m.code ILIKE %s" for _ in IHZARAT_MAKINELERI])
+        sql += f" AND ({filtreler})"
+        for item in IHZARAT_MAKINELERI:
+            params.extend([f"%{item}%", f"%{item}%"])
+    elif st.session_state.username in RING_BOBIN_KULLANICILARI:
+        filtreler = " OR ".join(["m.name ILIKE %s OR m.code ILIKE %s" for _ in RING_BOBIN_MAKINELERI])
+        sql += f" AND ({filtreler})"
+        for item in RING_BOBIN_MAKINELERI:
+            params.extend([f"%{item}%", f"%{item}%"])
+
+    sql += " ORDER BY r.record_date DESC LIMIT 20;"
+    
+    cur = conn.cursor()
+    cur.execute(sql, params)
+    rows = cur.fetchall()
+    colnames = [desc[0] for desc in cur.description]
+    df = pd.DataFrame(rows, columns=colnames)
+    cur.close()
+    conn.close()
+    return df
+
 st.title("🧵 İplik-6 | Arıza & Bakım Takip Portalı")
+
+# --- SON 20 ARIZA / BAKIM KAYDI KART ---
+with st.expander("🔔 En Son Girilen 20 Bakım & Arıza Kaydı (Genel Bakış)", expanded=True):
+    recent_df = load_recent_20_records()
+    if recent_df.empty:
+        st.info("Yetki alanınızda henüz kayıtlı bir arıza veya bakım bulunmuyor.")
+    else:
+        st.dataframe(recent_df, use_container_width=True, hide_index=True)
+
+st.divider()
 
 # Makine Arama ve Seçimi
 st.sidebar.header("Makine Seçimi")
