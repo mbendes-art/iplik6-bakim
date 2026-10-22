@@ -120,7 +120,13 @@ with st.sidebar:
     elif st.session_state.username in RING_BOBIN_KULLANICILARI:
         st.info("🏭 Yetki Alanı: **Ring & Bobin**")
         
-    if st.button("Çıkış Yap"):
+    # Makine seçilmişse sol menüye de ana ekran butonu koyalım
+    if st.session_state.secili_makine_id:
+        if st.button("🏠 Ana Ekrana Dön", use_container_width=True):
+            st.session_state.secili_makine_id = None
+            st.rerun()
+
+    if st.button("Çıkış Yap", use_container_width=True):
         st.session_state.logged_in = False
         st.session_state.username = ""
         st.session_state.secili_makine_id = None
@@ -158,7 +164,6 @@ def load_all_machines():
 
 all_machines = load_all_machines()
 
-# Yetkiye göre makineleri filtrele
 user = st.session_state.username
 if user in IHZARAT_KULLANICILARI:
     regex_pattern = "|".join(IHZARAT_KELIMELERI)
@@ -177,7 +182,6 @@ user_machines['secim_adi'] = user_machines['name'] + " (" + user_machines['code'
 sirali_makineler = sorted(user_machines['secim_adi'].unique(), key=dogal_sirala)
 secenekler = dict(zip(user_machines['secim_adi'], user_machines['id']))
 
-# Sol menüden açılır liste ile seçim
 secilen_kutu = st.sidebar.selectbox(
     "Veya Listeden Seçiniz", 
     sirali_makineler, 
@@ -225,10 +229,10 @@ def load_recent_20():
     except:
         return pd.DataFrame()
 
-# --- ANA EKRAN ---
+# --- ANA EKRAN BAŞLIĞI ---
 st.title("🧵 İplik-6 | Arıza & Bakım Takip Portalı")
 
-# SADECE ARAMA KUTUSUNA YAZILDIĞINDA MAKİNE BUTONLARINI GÖSTER
+# Arama Sonuçları (Sadece kutuya yazıldığında gelir)
 if search_term:
     filtreli_df = user_machines[
         user_machines['name'].str.lower().str.contains(search_term) |
@@ -253,28 +257,41 @@ if search_term:
 
     st.divider()
 
-# Henüz hiçbir makine seçilmediyse
+# Henüz makine seçilmemişse veya ana ekrandaysak:
 if not st.session_state.secili_makine_id:
     if not search_term:
-        st.info("👈 İşlem yapmak için sol menüdeki **'Hızlı Makine Arama'** alanına makine adı/no yazın veya **'Veya Listeden Seçiniz'** kutusundan makine seçin.")
+        st.info("👈 İşlem yapmak için sol menüden makine arayabilir veya açılır kutudan makine seçebilirsiniz.")
     else:
-        st.info("👆 Lütfen yukarıdaki arama sonuçlarından işlem yapmak istediğiniz **makinenin butonuna basınız**.")
+        st.info("👆 Lütfen yukarıdaki arama sonuçlarından işlem yapmak istediğiniz **makineye dokunun**.")
         
-    st.subheader("🔔 Son Girilen 20 Kayıt")
+    st.subheader("🔔 En Son Girilen 20 Bakım & Arıza Kaydı")
     son_kayitlar = load_recent_20()
     if not son_kayitlar.empty:
         st.dataframe(son_kayitlar, use_container_width=True, hide_index=True)
+    else:
+        st.info("Henüz arıza veya bakım kaydı bulunmuyor.")
     st.stop()
 
-# Makine seçildiğinde gösterilecek form ve detay alanı:
+# --- MAKİNE DETAY & İŞLEM EKRANI ---
 secili_makine_kaydi = user_machines[user_machines['id'] == st.session_state.secili_makine_id]
 if secili_makine_kaydi.empty:
     st.warning("Seçilen makine bulunamadı.")
+    if st.button("🏠 Ana Ekrana Dön"):
+        st.session_state.secili_makine_id = None
+        st.rerun()
     st.stop()
 
 m_detay = secili_makine_kaydi.iloc[0]
 
-st.markdown(f"## 📍 Aktif İşlem Yapılan: **{m_detay['name']} — `{m_detay['code']}`**")
+# Üst Bilgi Başlığı ve Ana Ekrana Dönüş Butonu
+col_baslik, col_buton = st.columns([3, 1])
+with col_baslik:
+    st.markdown(f"## 📍 Aktif Makine: **{m_detay['name']} — `{m_detay['code']}`**")
+with col_buton:
+    if st.button("🏠 Ana Ekrana Dön (Son 20)", use_container_width=True):
+        st.session_state.secili_makine_id = None
+        st.rerun()
+
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Marka", str(m_detay['brand']) or "-")
 c2.metric("Tip / Model", f"{m_detay['machine_type']} ({m_detay['model_year']})")
@@ -301,6 +318,9 @@ with tab1:
         parcalar = st.text_input("Değişen Yedek Parça", placeholder="Örn: Kayış (SPZ 1250), Rulman 6204...")
         teknisyen = st.text_input("İşlemi Yapan Usta", value=st.session_state.username)
 
+        # Ana ekrana dönme seçeneği
+        ana_ekrana_don = st.checkbox("Kaydettikten sonra doğrudan ana ekrana (Son 20 Arıza tablosuna) dön", value=True)
+
         kaydet = st.form_submit_button("💾 Kaydı Sisteme Kaydet", use_container_width=True, type="primary")
         if kaydet:
             if not aciklama.strip():
@@ -317,6 +337,10 @@ with tab1:
                 conn.commit()
                 conn.close()
                 st.success(f"✅ {m_detay['code']} için kayıt başarıyla işlendi!")
+                
+                # Checkbox seçiliyse ana ekrana döner, değilse aynı makinede kalır
+                if ana_ekrana_don:
+                    st.session_state.secili_makine_id = None
                 st.rerun()
 
 # GEÇMİŞ KAYITLAR
