@@ -29,7 +29,6 @@ DB_URI = "postgresql://postgres.ahvsruxighjrbwbepqej:iplik6-bakim@aws-0-ap-north
 def get_connection():
     return psycopg2.connect(DB_URI, connect_timeout=10)
 
-# Doğal sıralama fonksiyonu (CER-1, CER-2 ... CER-10)
 def dogal_sirala(metin):
     return [int(p) if p.isdigit() else p.lower() for p in re.split(r'(\d+)', str(metin))]
 
@@ -153,7 +152,7 @@ def load_all_machines():
 
 all_machines = load_all_machines()
 
-# Kullanıcı Yetkisine Göre Filtreleme
+# Yetkiye göre makineleri sınırla
 user = st.session_state.username
 if user in IHZARAT_KULLANICILARI:
     regex_pattern = "|".join(IHZARAT_KELIMELERI)
@@ -164,36 +163,34 @@ elif user in RING_BOBIN_KULLANICILARI:
 else:
     user_machines = all_machines.copy()
 
-# Arama Alanı
+# Sol Arama Alanı
 st.sidebar.header("🔍 Hızlı Makine Arama")
-search_term = st.sidebar.text_input("Makine Adı veya No Yazın", placeholder="Örn: CER, RING, 5...").strip().lower()
+search_term = st.sidebar.text_input("Makine Adı veya No", placeholder="Örn: CER, RING, 5...").strip().lower()
 
-# Filtrelenmiş Liste
+filtreli_df = user_machines.copy()
 if search_term:
-    filtreli_df = user_machines[
-        user_machines['name'].str.lower().str.contains(search_term) |
-        user_machines['code'].str.lower().str.contains(search_term) |
-        user_machines['no'].str.lower().str.contains(search_term)
-    ].copy()
-else:
-    filtreli_df = user_machines.copy()
+    filtreli_df = filtreli_df[
+        filtreli_df['name'].str.lower().str.contains(search_term) |
+        filtreli_df['code'].str.lower().str.contains(search_term) |
+        filtreli_df['no'].str.lower().str.contains(search_term)
+    ]
 
 filtreli_df['secim_adi'] = filtreli_df['name'] + " (" + filtreli_df['code'] + ")"
 sirali_makineler = sorted(filtreli_df['secim_adi'].unique(), key=dogal_sirala)
 secenekler = dict(zip(filtreli_df['secim_adi'], filtreli_df['id']))
 
-# Sol menüdeki açılır kutu
+# Sol menüden de seçim yapılabilir
 secilen_kutu = st.sidebar.selectbox(
-    "Makine Seçim Listesi", 
+    "Veya Listeden Seçiniz", 
     sirali_makineler, 
     index=None, 
-    placeholder="Seçim yapınız..."
+    placeholder="Açılır listeden seç..."
 )
 
 if secilen_kutu:
     st.session_state.secili_makine_id = secenekler[secilen_kutu]
 
-# --- VERİTABANI İŞLEMLERİ (KAYITLAR) ---
+# --- VERİTABANI FONKSİYONLARI ---
 def load_records(machine_code):
     try:
         conn = get_connection()
@@ -230,58 +227,56 @@ def load_recent_20():
     except:
         return pd.DataFrame()
 
-# --- ANA EKRAN GÖRÜNÜMÜ ---
+# --- ANA EKRAN ---
 st.title("🧵 İplik-6 | Arıza & Bakım Takip Portalı")
 
-# Arama yapıldığında bulunan tüm makineleri ana ekranda kart/buton olarak listeleme
-if search_term:
-    st.markdown(f"### 🔍 **'{search_term.upper()}'** Arama Sonuçları ({len(filtreli_df)} Makine Bulundu):")
-    if filtreli_df.empty:
-        st.warning(f"Yetki alanınızda '{search_term}' ile eşleşen bir makine bulunamadı.")
-    else:
-        # 3 sütun halinde butonlar
-        cols = st.columns(3)
-        for idx, (_, row) in enumerate(filtreli_df.iterrows()):
-            col = cols[idx % 3]
-            btn_label = f"⚙️ {row['code']} ({row['machine_type']})"
-            if col.button(btn_label, key=f"btn_search_{row['id']}", use_container_width=True):
-                st.session_state.secili_makine_id = row['id']
-                st.rerun()
+# Arama Sonuçları Butonları
+st.markdown(f"### 🔍 Makine Listesi ({len(filtreli_df)} Makine Mevcut)")
+cols = st.columns(3)
+for idx, (_, row) in enumerate(filtreli_df.iterrows()):
+    col = cols[idx % 3]
+    # Seçili olan makinenin butonu vurgulanır
+    is_selected = (st.session_state.secili_makine_id == row['id'])
+    btn_type = "primary" if is_selected else "secondary"
+    btn_label = f"⚙️ {row['code']} ({row['machine_type']})"
+    
+    if col.button(btn_label, key=f"btn_{row['id']}", type=btn_type, use_container_width=True):
+        st.session_state.secili_makine_id = row['id']
+        st.rerun()
 
 st.divider()
 
-# Henüz hiçbir makine seçilmemişse
+# Henüz hiçbir butona basılmamışsa
 if not st.session_state.secili_makine_id:
-    st.info("👈 Sol taraftaki arama kutusuna yazarak veya makine listesinden işlem yapmak istediğiniz makineyi seçin.")
+    st.info("👆 Lütfen arıza girmek veya geçmişi görmek istediğiniz **makinenin butonuna basınız**.")
     st.subheader("🔔 Son Girilen 20 Kayıt")
     son_kayitlar = load_recent_20()
     if not son_kayitlar.empty:
         st.dataframe(son_kayitlar, use_container_width=True, hide_index=True)
     st.stop()
 
-# Makine seçildiğinde gösterilecek alan:
-m_detay = user_machines[user_machines['id'] == st.session_state.secili_makine_id].iloc[0]
+# Butona basıldığında açılan işlem paneli
+secili_makine_kaydi = user_machines[user_machines['id'] == st.session_state.secili_makine_id]
+if secili_makine_kaydi.empty:
+    st.warning("Seçilen makine bulunamadı.")
+    st.stop()
 
-st.markdown(f"### 📍 Seçili Makine: **{m_detay['name']} — `{m_detay['code']}`**")
+m_detay = secili_makine_kaydi.iloc[0]
+
+st.markdown(f"## 📍 Aktif İşlem Yapılan: **{m_detay['name']} — `{m_detay['code']}`**")
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Marka", str(m_detay['brand']) or "-")
 c2.metric("Tip / Model", f"{m_detay['machine_type']} ({m_detay['model_year']})")
 c3.metric("Yerleşim", str(m_detay['location']) or "-")
 c4.metric("Seri No", str(m_detay['serial_no']) or "-")
 
-st.divider()
+st.markdown("---")
 
-tab1, tab2, tab3 = st.tabs(["📋 Geçmiş Kayıtlar", "➕ Yeni Bakım/Arıza Girişi", "📥 Excel Raporu"])
+tab1, tab2, tab3 = st.tabs(["➕ Yeni Bakım/Arıza Girişi", "📋 Geçmiş Kayıtlar", "📥 Excel Raporu"])
 
+# YENİ KAYIT
 with tab1:
-    kayitlar = load_records(m_detay['code'])
-    if kayitlar.empty:
-        st.info(f"{m_detay['code']} için kayıt bulunamadı.")
-    else:
-        st.dataframe(kayitlar.drop(columns=['id', 'parts_replaced']), use_container_width=True)
-
-with tab2:
-    st.subheader(f"{m_detay['code']} İçin Yeni Kayıt Ekle")
+    st.subheader(f"{m_detay['code']} İçin Yeni Arıza / Bakım Kaydı")
     with st.form("yeni_kayit_formu", clear_on_submit=True):
         col_tarih, col_saat = st.columns(2)
         girilen_tarih = col_tarih.date_input("İşlem Tarihi", value=datetime.date.today())
@@ -291,14 +286,14 @@ with tab2:
             "İşlem Türü", 
             ["Arıza Onarımı", "Periyodik Bakım", "Parça Değişimi", "Garnitür / Planga Ayarı", "Temizlik / Yağlama", "Sensör / Elektronik"]
         )
-        aciklama = st.text_area("Yapılan İşlem / Arıza Sebebi", placeholder="Arıza detayını yazın...")
-        parcalar = st.text_input("Değişen Parça Bilgisi", placeholder="Parça adı veya kodu...")
-        teknisyen = st.text_input("Müdahaleyi Yapan", value=st.session_state.username)
+        aciklama = st.text_area("Yapılan Müdahale / Arıza Nedeni", placeholder="Örn: Motor kayışı koptu, değiştirildi ve gergi ayarı yapıldı...")
+        parcalar = st.text_input("Değişen Yedek Parça", placeholder="Örn: Kayış (SPZ 1250), Rulman 6204...")
+        teknisyen = st.text_input("İşlemi Yapan Usta", value=st.session_state.username)
 
-        kaydet = st.form_submit_button("💾 Kaydı Buluta İşle", use_container_width=True)
+        kaydet = st.form_submit_button("💾 Kaydı Sisteme Kaydet", use_container_width=True, type="primary")
         if kaydet:
             if not aciklama.strip():
-                st.error("Lütfen açıklama girin!")
+                st.error("Lütfen yapılan işlemi veya arızayı açıklayınız!")
             else:
                 tarih_saat_str = f"{girilen_tarih.strftime('%Y-%m-%d')} {girilen_saat.strftime('%H:%M')}"
                 detay_metin = f"[{m_detay['code']}] {aciklama.strip()}"
@@ -310,16 +305,31 @@ with tab2:
                 """, (int(m_detay['id']), islem_turu, detay_metin, f"{m_detay['code']} | {parcalar.strip()}", teknisyen.strip(), tarih_saat_str))
                 conn.commit()
                 conn.close()
-                st.success("Kayıt başarıyla işlendi!")
+                st.success(f"✅ {m_detay['code']} için kayıt başarıyla işlendi!")
                 st.rerun()
 
-with tab3:
-    st.subheader("Rapor İndir")
+# GEÇMİŞ KAYITLAR
+with tab2:
+    st.subheader(f"{m_detay['code']} Geçmiş Bakım Kayıtları")
     kayitlar = load_records(m_detay['code'])
     if kayitlar.empty:
-        st.info("Kayıt bulunmuyor.")
+        st.info(f"{m_detay['code']} için henüz bir arıza kaydı bulunmuyor.")
+    else:
+        st.dataframe(kayitlar.drop(columns=['id', 'parts_replaced']), use_container_width=True)
+
+# EXCEL RAPORU
+with tab3:
+    st.subheader("Kayıtları İndir")
+    kayitlar = load_records(m_detay['code'])
+    if kayitlar.empty:
+        st.info("İndirilecek kayıt bulunmuyor.")
     else:
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
             kayitlar.to_excel(writer, index=False, sheet_name="Gecmis")
-        st.download_button("📊 Excel İndir (.xlsx)", data=buffer.getvalue(), file_name=f"{m_detay['code']}_Rapor.xlsx", use_container_width=True)
+        st.download_button(
+            "📊 Excel İndir (.xlsx)", 
+            data=buffer.getvalue(), 
+            file_name=f"{m_detay['code']}_Rapor.xlsx", 
+            use_container_width=True
+        )
