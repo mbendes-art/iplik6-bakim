@@ -10,10 +10,9 @@ warnings.filterwarnings('ignore', category=UserWarning, module='pandas')
 # Sayfa Yapılandırması
 st.set_page_config(
     page_title="İplik-6 Bakım Yönetimi",
-    page_icon="🧵",
+    page_icon="logo.png",
     layout="wide"
 )
-
 # --- VERİTABANI BAĞLANTISI ---
 DB_URI = "postgresql://postgres.ahvsruxighjrbwbepqej:iplik6-bakim@aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres"
 
@@ -67,6 +66,7 @@ if not st.session_state.logged_in:
 
 # --- GİRİŞ YAPILDIKTAN SONRAKİ PANEL ---
 with st.sidebar:
+    st.image("logo.png", width=150)
     st.write(f"👤 Aktif Kullanıcı: **{st.session_state.username}**")
     if st.button("Çıkış Yap"):
         st.session_state.logged_in = False
