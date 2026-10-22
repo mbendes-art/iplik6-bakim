@@ -30,7 +30,6 @@ def get_connection():
     return psycopg2.connect(DB_URI, connect_timeout=10)
 
 def dogal_sirala(metin):
-    """Metin içerisindeki sayıları sayısal olarak ayırarak doğal sıralama sağlar (PENYE-2, PENYE-10'dan önce gelir)."""
     return [int(p) if p.isdigit() else p.lower() for p in re.split(r'(\d+)', str(metin))]
 
 # --- KULLANICI LİSTELERİ VE YETKİLER ---
@@ -63,10 +62,15 @@ IHZARAT_KELIMELERI = [
 
 RING_BOBIN_KELIMELERI = ["RING", "BOBİN", "BOBIN", "PAKETLEME"]
 
-# --- OTURUM YÖNETİMİ ---
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-    st.session_state.username = ""
+# --- KALICI OTURUM YÖNETİMİ (ANDROID / MOBİL KAPANMALARINA KARŞI) ---
+# Tarayıcı kapansa bile URL parametresinden kullanıcıyı hatırlar
+if "user" in st.query_params and st.query_params["user"] in YETKILI_KULLANICILAR:
+    st.session_state.logged_in = True
+    st.session_state.username = st.query_params["user"]
+else:
+    if "logged_in" not in st.session_state:
+        st.session_state.logged_in = False
+        st.session_state.username = ""
 
 if "secili_makine_id" not in st.session_state:
     st.session_state.secili_makine_id = None
@@ -96,6 +100,8 @@ def login():
                 st.session_state.logged_in = True
                 st.session_state.username = username
                 st.session_state.secili_makine_id = None
+                # Tarayıcıya oturumu kalıcı kaydet
+                st.query_params["user"] = username
                 st.success("Giriş başarılı!")
                 st.rerun()
             else:
@@ -121,7 +127,6 @@ with st.sidebar:
     elif st.session_state.username in RING_BOBIN_KULLANICILARI:
         st.info("🏭 Yetki Alanı: **Ring & Bobin**")
         
-    # Yan menüde her an erişilebilir Ana Menü butonu
     if st.session_state.secili_makine_id:
         if st.button("⬅️ Ana Menüye Dön", key="side_home_btn", use_container_width=True):
             st.session_state.secili_makine_id = None
@@ -131,6 +136,9 @@ with st.sidebar:
         st.session_state.logged_in = False
         st.session_state.username = ""
         st.session_state.secili_makine_id = None
+        # Oturum parametresini temizle
+        if "user" in st.query_params:
+            del st.query_params["user"]
         st.rerun()
     st.divider()
 
@@ -263,7 +271,6 @@ if search_term:
         user_machines['no'].str.lower().str.contains(search_term)
     ].copy()
 
-    # DOĞAL SAYISAL SIRALAMA (1, 2, 3 ... 10, 15)
     filtreli_df['sira_anahtari'] = filtreli_df['code'].apply(dogal_sirala)
     filtreli_df = filtreli_df.sort_values(by='sira_anahtari').drop(columns=['sira_anahtari'])
 
@@ -311,7 +318,7 @@ if secili_makine_kaydi.empty:
 
 m_detay = secili_makine_kaydi.iloc[0]
 
-# MOBİLDE EN ÜSTTE DOĞRUDAN GÖRÜNEN BÜYÜK BASMALI BUTON
+# MOBİLDE EN ÜSTTE BÜYÜK BASMALI BUTON
 if st.button("⬅️ ANA MENÜYE DÖN (TÜM LİSTE & SON 20)", key="top_home_btn", use_container_width=True, type="secondary"):
     st.session_state.secili_makine_id = None
     st.rerun()
@@ -399,7 +406,7 @@ with tab3:
             use_container_width=True
         )
 
-# Sayfa Altı Geri Dön Butonu (Mobilde form doldurulduktan sonra aşağıda da kolay erişim için)
+# Sayfa Altı Geri Dön Butonu
 st.divider()
 if st.button("⬅️ ANA MENÜYE DÖN (TÜM LİSTE & SON 20)", key="bottom_home_btn", use_container_width=True):
     st.session_state.secili_makine_id = None
