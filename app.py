@@ -3,6 +3,7 @@ import psycopg2
 import pandas as pd
 import datetime
 import io
+import os
 import warnings
 
 warnings.filterwarnings('ignore', category=UserWarning, module='pandas')
@@ -10,33 +11,68 @@ warnings.filterwarnings('ignore', category=UserWarning, module='pandas')
 # Sayfa Yapılandırması
 st.set_page_config(
     page_title="İplik-6 Bakım Yönetimi",
-    page_icon="logo.png",
+    page_icon="🧵",
     layout="wide"
 )
+
+# Streamlit menü ve alt bilgi ögelerini gizleme
+hide_streamlit_style = """
+    <style>
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    .viewerBadge_container__1QSob {display: none;}
+    </style>
+"""
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+
 # --- VERİTABANI BAĞLANTISI ---
 DB_URI = "postgresql://postgres.ahvsruxighjrbwbepqej:iplik6-bakim@aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres"
 
 def get_connection():
     return psycopg2.connect(DB_URI)
 
-# --- YETKİLİ KULLANICILAR VE ORTAK ŞİFRE ---
+# --- ORTAK ŞİFRE VE KULLANICI YETKİ GRUPLARI ---
 ORTAK_SIFRE = "iplik6"
 
-YETKILI_KULLANICILAR = [
+# 1. TÜM MAKİNELERDE (iplik6MakineListesi - 125 Makine) TAM YETKİLİ OLANLAR
+TAM_YETKILI_YONETICILER = [
     "mbendes",
+    "ahmet",
     "r_şahin", "r_sahin",
     "n_ertürk", "n_erturk",
-    "g_albayrak",
+    "g_albayrak"
+]
+
+# 2. SADECE İHZARAT MAKİNELERİNİ GÖRECEK EKİP
+IHZARAT_KULLANICILARI = [
+    "a_gültekin", "a_gultekin",
+    "g_gümüş", "g_gumus",
+    "g_göktaş", "g_goktas",
+    "a_öztürk", "a_ozturk"
+]
+
+# 3. SADECE RING / BOBİN / PAKETLEME MAKİNELERİNİ GÖRECEK EKİP
+RING_BOBIN_KULLANICILARI = [
     "a_aslan",
     "m_karahan",
     "m_bay",
     "e_candan",
-    "l_yaşar","l_yasar",
-    "a_gültekin","a_gultekin",
-    "g_gümüş","g_gumus",
-    "g_göktaş","g_goktas",
-    "a_öztürk","a_ozturk",
-    "f_duran"
+    "l_yaşar", "l_yasar"
+]
+
+# Sisteme girebilecek tüm kullanıcılar
+YETKILI_KULLANICILAR = TAM_YETKILI_YONETICILER + IHZARAT_KULLANICILARI + RING_BOBIN_KULLANICILARI + ["f_duran"]
+
+# Makine Filtreleme Grupları
+IHZARAT_MAKINELERI = [
+    "UNIFLOC", "UNICLEAN", "UNIMİX", "UNISTORE", "KONDENSER",
+    "VSI", "TELEF", "TARAK", "CER", "OMEGALLAP", "SERVOLAB",
+    "PENYE", "RSB-CER", "FİTİL"
+]
+
+RING_BOBIN_MAKINELERI = [
+    "RING", "BOBİN", "BOBIN", "PAKETLEME"
 ]
 
 # --- OTURUM (LOGIN) YÖNETİMİ ---
@@ -45,6 +81,11 @@ if "logged_in" not in st.session_state:
     st.session_state.username = ""
 
 def login():
+    if os.path.exists("logo.png"):
+        st.image("logo.png", width=160)
+    elif os.path.exists("logo.jpg"):
+        st.image("logo.jpg", width=160)
+        
     st.markdown("## 🔐 İplik-6 İşletmesi Yetkili Girişi")
     with st.form("login_form"):
         username = st.text_input("Kullanıcı Adı").strip().lower()
@@ -66,8 +107,23 @@ if not st.session_state.logged_in:
 
 # --- GİRİŞ YAPILDIKTAN SONRAKİ PANEL ---
 with st.sidebar:
-    st.image("logo.png", width=150)
+    if os.path.exists("logo.png"):
+        st.image("logo.png", width=150)
+    elif os.path.exists("logo.jpg"):
+        st.image("logo.jpg", width=150)
+        
     st.write(f"👤 Aktif Kullanıcı: **{st.session_state.username}**")
+    
+    # Kullanıcı rolüne göre yetki etiketi
+    if st.session_state.username in TAM_YETKILI_YONETICILER:
+        st.success("🏭 Yetki: **Tüm Fabrika (Tam Yetki)**")
+    elif st.session_state.username in IHZARAT_KULLANICILARI:
+        st.info("🏭 Yetki Alanı: **İhzarat Bölümü**")
+    elif st.session_state.username in RING_BOBIN_KULLANICILARI:
+        st.info("🏭 Yetki Alanı: **Ring & Bobin**")
+    else:
+        st.info("🏭 Yetki Alanı: **Operasyon**")
+        
     if st.button("Çıkış Yap"):
         st.session_state.logged_in = False
         st.session_state.username = ""
@@ -76,12 +132,30 @@ with st.sidebar:
 
 def load_machines(query=""):
     conn = get_connection()
-    sql = "SELECT id, code, name, location, machine_type, serial_no, brand, model_year FROM machines"
+    sql = "SELECT id, code, name, location, machine_type, serial_no, brand, model_year FROM machines WHERE 1=1"
     params = []
+    
+    # İhzarat ekibi filtresi
+    if st.session_state.username in IHZARAT_KULLANICILARI:
+        filtreler = " OR ".join(["name ILIKE %s OR code ILIKE %s" for _ in IHZARAT_MAKINELERI])
+        sql += f" AND ({filtreler})"
+        for m in IHZARAT_MAKINELERI:
+            params.extend([f"%{m}%", f"%{m}%"])
+
+    # Ring / Bobin ekibi filtresi
+    elif st.session_state.username in RING_BOBIN_KULLANICILARI:
+        filtreler = " OR ".join(["name ILIKE %s OR code ILIKE %s" for _ in RING_BOBIN_MAKINELERI])
+        sql += f" AND ({filtreler})"
+        for m in RING_BOBIN_MAKINELERI:
+            params.extend([f"%{m}%", f"%{m}%"])
+
+    # TAM_YETKILI_YONETICILER ("mbendes", "r_şahin", "n_ertürk", "g_albayrak") herhangi bir kısıtlamaya takılmaz; 125 makinenin tamamını görür.
+
     if query:
-        sql += " WHERE code ILIKE %s OR name ILIKE %s OR location ILIKE %s OR machine_type ILIKE %s"
+        sql += " AND (code ILIKE %s OR name ILIKE %s OR location ILIKE %s OR machine_type ILIKE %s)"
         q = f"%{query}%"
-        params = [q, q, q, q]
+        params.extend([q, q, q, q])
+        
     sql += " ORDER BY name, code"
     
     cur = conn.cursor()
@@ -119,7 +193,7 @@ search_term = st.sidebar.text_input("🔍 Hızlı Arama", placeholder="Makine ad
 machines = load_machines(search_term)
 
 if machines.empty:
-    st.warning("Eşleşen makine bulunamadı.")
+    st.warning("Erişim yetkiniz dahilinde eşleşen makine bulunamadı.")
     st.stop()
 
 machines['secim_adi'] = machines['name'] + " (" + machines['code'] + ")"
