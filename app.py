@@ -132,7 +132,7 @@ with st.sidebar:
         st.rerun()
     st.divider()
 
-# --- MAKİNE LİSTESİNİ ÇEKME (VERİTABANI VE EXCEL BİRLEŞİK) ---
+# --- MAKİNE LİSTESİNİ ÇEKME ---
 @st.cache_data(ttl=60)
 def load_all_machines():
     conn = get_connection()
@@ -144,16 +144,13 @@ def load_all_machines():
     conn.close()
     df_db = pd.DataFrame(rows, columns=colnames)
     
-    # Excel varsa bilgileri zenginleştir
     if os.path.exists("iplik6MakineListesi.xlsx"):
         df_excel = pd.read_excel("iplik6MakineListesi.xlsx").fillna("")
         df_excel['excel_code'] = df_excel['MAKİNE ADI'].astype(str).str.strip() + " - " + df_excel['İŞLETME NO'].astype(str).str.strip()
         df_excel['excel_no'] = df_excel['İŞLETME NO'].astype(str).str.strip()
         
-        # Kod veya isim bazlı eşleme
         merged = pd.merge(df_db, df_excel, left_on='code', right_on='excel_code', how='left')
         df_db['no'] = merged['excel_no'].fillna("")
-        # Eksik markaları doldur
         df_db['brand'] = df_db['brand'].combine_first(merged['MARKA'])
         df_db['machine_type'] = df_db['machine_type'].combine_first(merged['TYPE'])
         df_db['model_year'] = df_db['model_year'].combine_first(merged['MODEL'].astype(str).str.replace(".0", "", regex=False))
@@ -177,7 +174,7 @@ else:
 
 # Sol Arama Alanı
 st.sidebar.header("🔍 Hızlı Makine Arama")
-search_term = st.sidebar.text_input("Makine Adı veya No", placeholder="Örn: CER, RING, 5...").strip().lower()
+search_term = st.sidebar.text_input("Makine Adı veya No", placeholder="Örn: RING, CER, 5...").strip().lower()
 
 user_machines['secim_adi'] = user_machines['name'] + " (" + user_machines['code'] + ")"
 sirali_makineler = sorted(user_machines['secim_adi'].unique(), key=dogal_sirala)
@@ -193,13 +190,11 @@ secilen_kutu = st.sidebar.selectbox(
 if secilen_kutu:
     st.session_state.secili_makine_id = secenekler[secilen_kutu]
 
-# --- VERİTABANI İŞLEMLERİ (ÇİFT YÖNLÜ AKILLI ARAMA) ---
-def load_records(machine_id, machine_code, machine_name):
+# --- VERİTABANI FONKSİYONLARI ---
+def load_records(machine_id, machine_code):
     try:
         conn = get_connection()
         cur = conn.cursor()
-        
-        # Hem gerçek machine_id'ye hem de yazı içindeki kod/isim eşleşmesine bakar
         cur.execute("""
             SELECT id, record_date, record_type, description, parts_replaced, technician 
             FROM maintenance_records 
@@ -208,7 +203,6 @@ def load_records(machine_id, machine_code, machine_name):
                OR description ILIKE %s
             ORDER BY record_date DESC LIMIT 50
         """, (machine_id, f"%{machine_code}%", f"%{machine_code}%"))
-        
         rows = cur.fetchall()
         colnames = [desc[0] for desc in cur.description]
         cur.close()
@@ -217,12 +211,12 @@ def load_records(machine_id, machine_code, machine_name):
     except:
         return pd.DataFrame()
 
-def load_recent_20():
+def load_filtered_recent_20(filter_query=""):
+    """Genel veya aranan kelimeye (örn: RING) göre son 20 kaydı getirir."""
     try:
         conn = get_connection()
         cur = conn.cursor()
-        # Tüm kayıtları makine bilgisiyle birlikte çeker
-        cur.execute("""
+        sql = """
             SELECT 
                 r.record_date AS "Tarih / Saat", 
                 r.record_type AS "İşlem Türü", 
@@ -232,15 +226,22 @@ def load_recent_20():
                 r.technician AS "Teknisyen"
             FROM maintenance_records r
             LEFT JOIN machines m ON r.machine_id = m.id
-            ORDER BY r.record_date DESC LIMIT 20;
-        """)
+            WHERE 1=1
+        """
+        params = []
+        if filter_query:
+            sql += " AND (m.code ILIKE %s OR m.name ILIKE %s OR r.description ILIKE %s OR r.parts_replaced ILIKE %s)"
+            q = f"%{filter_query}%"
+            params.extend([q, q, q, q])
+            
+        sql += " ORDER BY r.record_date DESC LIMIT 20;"
+        cur.execute(sql, params)
         rows = cur.fetchall()
         colnames = [desc[0] for desc in cur.description]
         cur.close()
         conn.close()
         df = pd.DataFrame(rows, columns=colnames)
         
-        # Eğer makine sütunu boşsa açıklamadan otomatik çıkarır
         for idx, row in df.iterrows():
             if not row['Makine'] and '[' in str(row['Açıklama / Müdahale']):
                 match = re.search(r'\[(.*?)\]', str(row['Açıklama / Müdahale']))
@@ -250,10 +251,10 @@ def load_recent_20():
     except:
         return pd.DataFrame()
 
-# --- ANA EKRAN BAŞLIĞI ---
+# --- ANA EKRAN ---
 st.title("🧵 İplik-6 | Arıza & Bakım Takip Portalı")
 
-# Arama Sonuçları (Sadece kutuya yazıldığında görünür)
+# HIZLI ARAMA YAPILDIĞINDA (Örn: RING yazıldığında)
 if search_term:
     filtreli_df = user_machines[
         user_machines['name'].str.lower().str.contains(search_term) |
@@ -261,10 +262,11 @@ if search_term:
         user_machines['no'].str.lower().str.contains(search_term)
     ].copy()
 
-    st.markdown(f"### 🔍 **'{search_term.upper()}'** Arama Sonuçları ({len(filtreli_df)} Makine Bulundu)")
+    st.markdown(f"### 🔍 **'{search_term.upper()}'** Makineleri ({len(filtreli_df)} Makine Bulundu)")
     if filtreli_df.empty:
         st.warning(f"Yetki alanınızda '{search_term}' ile eşleşen makine bulunamadı.")
     else:
+        # Butonlar
         cols = st.columns(3)
         for idx, (_, row) in enumerate(filtreli_df.iterrows()):
             col = cols[idx % 3]
@@ -276,24 +278,25 @@ if search_term:
                 st.session_state.secili_makine_id = row['id']
                 st.rerun()
 
-    st.divider()
+    st.markdown("---")
 
-# Henüz makine seçilmemişse Ana Ekran
+# Henüz makineye tıklanmamışsa: Son 20 Kayıt Tablosu
 if not st.session_state.secili_makine_id:
-    if not search_term:
-        st.info("👈 İşlem yapmak için sol menüden arama yapabilir veya makine seçebilirsiniz.")
+    if search_term:
+        st.subheader(f"🔔 '{search_term.upper()}' İçin Son Girilen Bakım & Arıza Kayıtları")
+        son_kayitlar = load_filtered_recent_20(search_term)
     else:
-        st.info("👆 Lütfen yukarıdaki arama sonuçlarından işlem yapacağınız **makine butonuna basınız**.")
-        
-    st.subheader("🔔 En Son Girilen 20 Bakım & Arıza Kaydı")
-    son_kayitlar = load_recent_20()
+        st.info("👈 İşlem yapmak için sol menüden makine adı/no aratın veya açılır listeden seçim yapın.")
+        st.subheader("🔔 En Son Girilen 20 Bakım & Arıza Kaydı (Genel)")
+        son_kayitlar = load_filtered_recent_20("")
+
     if not son_kayitlar.empty:
         st.dataframe(son_kayitlar, use_container_width=True, hide_index=True)
     else:
-        st.info("Henüz kayıt bulunmuyor.")
+        st.info("Bu filtreye ait henüz kayıt bulunmuyor.")
     st.stop()
 
-# --- SEÇİLİ MAKİNE EKRANI ---
+# --- MAKİNE SEÇİLDİĞİNDE GÖRÜNEN İŞLEM ALANI ---
 secili_makine_kaydi = user_machines[user_machines['id'] == st.session_state.secili_makine_id]
 if secili_makine_kaydi.empty:
     st.warning("Seçilen makine bulunamadı.")
@@ -323,9 +326,9 @@ st.markdown("---")
 
 tab1, tab2, tab3 = st.tabs(["➕ Yeni Bakım/Arıza Girişi", "📋 Geçmiş Kayıtlar", "📥 Excel Raporu"])
 
-# TAB 1: YENİ KAYIT
+# YENİ KAYIT
 with tab1:
-    st.subheader(f"{m_detay['code']} İçin Yeni Kayıt Girişi")
+    st.subheader(f"{m_detay['code']} İçin Yeni Arıza / Bakım Kaydı")
     with st.form("yeni_kayit_formu", clear_on_submit=True):
         col_tarih, col_saat = st.columns(2)
         girilen_tarih = col_tarih.date_input("İşlem Tarihi", value=datetime.date.today())
@@ -346,8 +349,6 @@ with tab1:
             else:
                 tarih_saat_str = f"{girilen_tarih.strftime('%Y-%m-%d')} {girilen_saat.strftime('%H:%M')}"
                 detay_metin = f"[{m_detay['code']}] {aciklama.strip()}"
-                
-                # Hem machine_id hem de metin bazlı çifte kayıt
                 conn = get_connection()
                 cur = conn.cursor()
                 cur.execute("""
@@ -359,14 +360,13 @@ with tab1:
                 st.success(f"✅ {m_detay['code']} için kayıt başarıyla işlendi!")
                 st.rerun()
 
-# TAB 2: GEÇMİŞ KAYITLAR
+# GEÇMİŞ KAYITLAR
 with tab2:
     st.subheader(f"{m_detay['code']} Geçmiş Bakım Kayıtları")
-    kayitlar = load_records(int(m_detay['id']), m_detay['code'], m_detay['name'])
+    kayitlar = load_records(int(m_detay['id']), m_detay['code'])
     if kayitlar.empty:
         st.info(f"{m_detay['code']} için henüz bir arıza kaydı bulunmuyor.")
     else:
-        # Metindeki [KOD] başlığını temizleyip sade gösterir
         kayitlar_goster = kayitlar.copy()
         kayitlar_goster['description'] = kayitlar_goster['description'].str.replace(f"[{m_detay['code']}]", "", regex=False).str.strip()
         st.dataframe(
@@ -380,10 +380,10 @@ with tab2:
             use_container_width=True
         )
 
-# TAB 3: EXCEL RAPORU
+# EXCEL RAPORU
 with tab3:
     st.subheader("Kayıtları İndir")
-    kayitlar = load_records(int(m_detay['id']), m_detay['code'], m_detay['name'])
+    kayitlar = load_records(int(m_detay['id']), m_detay['code'])
     if kayitlar.empty:
         st.info("İndirilecek kayıt bulunmuyor.")
     else:
