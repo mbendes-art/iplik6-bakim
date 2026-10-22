@@ -33,10 +33,10 @@ def dogal_sirala(metin):
     return [int(p) if p.isdigit() else p.lower() for p in re.split(r'(\d+)', str(metin))]
 
 # --- KULLANICI LİSTELERİ VE YETKİLER ---
-ORTAK_SIFRE = "iplik6"
+ORTAK_SIFRE = "iplik6","İPLİK6","IPLIK6"
 
 TAM_YETKILI_YONETICILER = [
-    "mbendes", "ahmet", "r_şahin", "r_sahin", "n_ertürk", "n_erturk", "g_albayrak"
+    "mbendes","r_şahin", "r_sahin", "n_ertürk", "n_erturk", "g_albayrak"
 ]
 
 IHZARAT_KULLANICILARI = [
