@@ -33,10 +33,9 @@ def dogal_sirala(metin):
     return [int(p) if p.isdigit() else p.lower() for p in re.split(r'(\d+)', str(metin))]
 
 # --- KULLANICI LİSTELERİ VE YETKİLER ---
-ORTAK_SIFRE = "iplik6","İPLİK6","IPLIK6"
-
+# 'ahmet' kullanıcı adı listeden çıkarıldı
 TAM_YETKILI_YONETICILER = [
-    "mbendes","r_şahin", "r_sahin", "n_ertürk", "n_erturk", "g_albayrak"
+    "mbendes", "r_şahin", "r_sahin", "n_ertürk", "n_erturk", "g_albayrak"
 ]
 
 IHZARAT_KULLANICILARI = [
@@ -72,6 +71,14 @@ if "logged_in" not in st.session_state:
 if "secili_makine_id" not in st.session_state:
     st.session_state.secili_makine_id = None
 
+def normalize_text(text):
+    """Türkçe İ/ı ve büyük/küçük harf duyarlılığını ortadan kaldırır."""
+    if not text:
+        return ""
+    text = text.strip()
+    text = text.replace("İ", "i").replace("I", "ı").replace("ı", "i")
+    return text.lower()
+
 def login():
     if os.path.exists("logo.png"):
         st.image("logo.png", width=160)
@@ -85,7 +92,9 @@ def login():
         submit = st.form_submit_button("Giriş Yap", use_container_width=True)
 
         if submit:
-            if username in YETKILI_KULLANICILAR and (password == ORTAK_SIFRE or password == "iplik123"):
+            norm_pass = normalize_text(password)
+            # iplik6, IPLIK6, İPLİK6 veya iplik123 kabul edilir
+            if username in YETKILI_KULLANICILAR and (norm_pass == "iplik6" or norm_pass == "iplik123"):
                 st.session_state.logged_in = True
                 st.session_state.username = username
                 st.session_state.secili_makine_id = None
@@ -179,7 +188,7 @@ filtreli_df['secim_adi'] = filtreli_df['name'] + " (" + filtreli_df['code'] + ")
 sirali_makineler = sorted(filtreli_df['secim_adi'].unique(), key=dogal_sirala)
 secenekler = dict(zip(filtreli_df['secim_adi'], filtreli_df['id']))
 
-# Sol menüden de seçim yapılabilir
+# Sol menüden seçim kutusu
 secilen_kutu = st.sidebar.selectbox(
     "Veya Listeden Seçiniz", 
     sirali_makineler, 
@@ -235,7 +244,6 @@ st.markdown(f"### 🔍 Makine Listesi ({len(filtreli_df)} Makine Mevcut)")
 cols = st.columns(3)
 for idx, (_, row) in enumerate(filtreli_df.iterrows()):
     col = cols[idx % 3]
-    # Seçili olan makinenin butonu vurgulanır
     is_selected = (st.session_state.secili_makine_id == row['id'])
     btn_type = "primary" if is_selected else "secondary"
     btn_label = f"⚙️ {row['code']} ({row['machine_type']})"
