@@ -120,7 +120,6 @@ with st.sidebar:
     elif st.session_state.username in RING_BOBIN_KULLANICILARI:
         st.info("🏭 Yetki Alanı: **Ring & Bobin**")
         
-    # Yan menüde basmalı ana sayfa butonu
     if st.session_state.secili_makine_id:
         if st.button("⬅️ Ana Sayfaya Dön", key="side_home_btn", use_container_width=True):
             st.session_state.secili_makine_id = None
@@ -133,34 +132,36 @@ with st.sidebar:
         st.rerun()
     st.divider()
 
-# --- MAKİNE LİSTESİ YÜKLEME ---
+# --- MAKİNE LİSTESİNİ ÇEKME (VERİTABANI VE EXCEL BİRLEŞİK) ---
 @st.cache_data(ttl=60)
 def load_all_machines():
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT id, code, name, location, machine_type, serial_no, brand, model_year FROM machines ORDER BY name, code")
+    rows = cur.fetchall()
+    colnames = [desc[0] for desc in cur.description]
+    cur.close()
+    conn.close()
+    df_db = pd.DataFrame(rows, columns=colnames)
+    
+    # Excel varsa bilgileri zenginleştir
     if os.path.exists("iplik6MakineListesi.xlsx"):
-        df_excel = pd.read_excel("iplik6MakineListesi.xlsx")
-        df_excel = df_excel.fillna("")
-        df = pd.DataFrame()
-        df['name'] = df_excel['MAKİNE ADI'].astype(str).str.strip()
-        df['no'] = df_excel['İŞLETME NO'].astype(str).str.strip()
-        df['code'] = df_excel['MAKİNE ADI'].astype(str).str.strip() + " - " + df_excel['İŞLETME NO'].astype(str).str.strip()
-        df['brand'] = df_excel['MARKA'].astype(str).str.strip()
-        df['model_year'] = df_excel['MODEL'].astype(str).str.replace(".0", "", regex=False).str.strip()
-        df['machine_type'] = df_excel['TYPE'].astype(str).str.strip()
-        df['serial_no'] = df_excel['MAKİNE NO'].astype(str).str.strip()
-        df['location'] = "İşletme No: " + df_excel['İŞLETME NO'].astype(str).str.strip()
-        df['id'] = range(1, len(df) + 1)
-        return df
+        df_excel = pd.read_excel("iplik6MakineListesi.xlsx").fillna("")
+        df_excel['excel_code'] = df_excel['MAKİNE ADI'].astype(str).str.strip() + " - " + df_excel['İŞLETME NO'].astype(str).str.strip()
+        df_excel['excel_no'] = df_excel['İŞLETME NO'].astype(str).str.strip()
+        
+        # Kod veya isim bazlı eşleme
+        merged = pd.merge(df_db, df_excel, left_on='code', right_on='excel_code', how='left')
+        df_db['no'] = merged['excel_no'].fillna("")
+        # Eksik markaları doldur
+        df_db['brand'] = df_db['brand'].combine_first(merged['MARKA'])
+        df_db['machine_type'] = df_db['machine_type'].combine_first(merged['TYPE'])
+        df_db['model_year'] = df_db['model_year'].combine_first(merged['MODEL'].astype(str).str.replace(".0", "", regex=False))
+        df_db['serial_no'] = df_db['serial_no'].combine_first(merged['MAKİNE NO'].astype(str))
     else:
-        conn = get_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT id, code, name, location, machine_type, serial_no, brand, model_year FROM machines ORDER BY name, code")
-        rows = cur.fetchall()
-        colnames = [desc[0] for desc in cur.description]
-        cur.close()
-        conn.close()
-        df = pd.DataFrame(rows, columns=colnames)
-        df['no'] = ""
-        return df
+        df_db['no'] = ""
+
+    return df_db
 
 all_machines = load_all_machines()
 
@@ -192,17 +193,22 @@ secilen_kutu = st.sidebar.selectbox(
 if secilen_kutu:
     st.session_state.secili_makine_id = secenekler[secilen_kutu]
 
-# --- VERİTABANI FONKSİYONLARI ---
-def load_records(machine_code):
+# --- VERİTABANI İŞLEMLERİ (ÇİFT YÖNLÜ AKILLI ARAMA) ---
+def load_records(machine_id, machine_code, machine_name):
     try:
         conn = get_connection()
         cur = conn.cursor()
+        
+        # Hem gerçek machine_id'ye hem de yazı içindeki kod/isim eşleşmesine bakar
         cur.execute("""
             SELECT id, record_date, record_type, description, parts_replaced, technician 
             FROM maintenance_records 
-            WHERE parts_replaced ILIKE %s OR description ILIKE %s
+            WHERE machine_id = %s 
+               OR parts_replaced ILIKE %s 
+               OR description ILIKE %s
             ORDER BY record_date DESC LIMIT 50
-        """, (f"%{machine_code}%", f"%{machine_code}%"))
+        """, (machine_id, f"%{machine_code}%", f"%{machine_code}%"))
+        
         rows = cur.fetchall()
         colnames = [desc[0] for desc in cur.description]
         cur.close()
@@ -215,24 +221,39 @@ def load_recent_20():
     try:
         conn = get_connection()
         cur = conn.cursor()
+        # Tüm kayıtları makine bilgisiyle birlikte çeker
         cur.execute("""
-            SELECT record_date AS "Tarih / Saat", record_type AS "İşlem Türü", 
-                   description AS "Açıklama / Makine", parts_replaced AS "Değişen Parça / Kod", technician AS "Teknisyen"
-            FROM maintenance_records 
-            ORDER BY record_date DESC LIMIT 20;
+            SELECT 
+                r.record_date AS "Tarih / Saat", 
+                r.record_type AS "İşlem Türü", 
+                COALESCE(m.code, '') AS "Makine",
+                r.description AS "Açıklama / Müdahale", 
+                r.parts_replaced AS "Değişen Parça / Kod", 
+                r.technician AS "Teknisyen"
+            FROM maintenance_records r
+            LEFT JOIN machines m ON r.machine_id = m.id
+            ORDER BY r.record_date DESC LIMIT 20;
         """)
         rows = cur.fetchall()
         colnames = [desc[0] for desc in cur.description]
         cur.close()
         conn.close()
-        return pd.DataFrame(rows, columns=colnames)
+        df = pd.DataFrame(rows, columns=colnames)
+        
+        # Eğer makine sütunu boşsa açıklamadan otomatik çıkarır
+        for idx, row in df.iterrows():
+            if not row['Makine'] and '[' in str(row['Açıklama / Müdahale']):
+                match = re.search(r'\[(.*?)\]', str(row['Açıklama / Müdahale']))
+                if match:
+                    df.at[idx, 'Makine'] = match.group(1)
+        return df
     except:
         return pd.DataFrame()
 
 # --- ANA EKRAN BAŞLIĞI ---
 st.title("🧵 İplik-6 | Arıza & Bakım Takip Portalı")
 
-# Arama Sonuçları (Sadece kutuya harf/sayı girildiğinde butonlar görünür)
+# Arama Sonuçları (Sadece kutuya yazıldığında görünür)
 if search_term:
     filtreli_df = user_machines[
         user_machines['name'].str.lower().str.contains(search_term) |
@@ -249,7 +270,7 @@ if search_term:
             col = cols[idx % 3]
             is_selected = (st.session_state.secili_makine_id == row['id'])
             btn_type = "primary" if is_selected else "secondary"
-            btn_label = f"⚙️ {row['code']} ({row['machine_type']})"
+            btn_label = f"⚙️ {row['code']}"
             
             if col.button(btn_label, key=f"btn_{row['id']}", type=btn_type, use_container_width=True):
                 st.session_state.secili_makine_id = row['id']
@@ -257,10 +278,10 @@ if search_term:
 
     st.divider()
 
-# Henüz hiçbir makine seçilmemişse doğrudan bu karşılama ekranı görünür:
+# Henüz makine seçilmemişse Ana Ekran
 if not st.session_state.secili_makine_id:
     if not search_term:
-        st.info("👈 İşlem yapmak için sol menüden makine adı/no aratın veya açılır kutudan makine seçin.")
+        st.info("👈 İşlem yapmak için sol menüden arama yapabilir veya makine seçebilirsiniz.")
     else:
         st.info("👆 Lütfen yukarıdaki arama sonuçlarından işlem yapacağınız **makine butonuna basınız**.")
         
@@ -272,7 +293,7 @@ if not st.session_state.secili_makine_id:
         st.info("Henüz kayıt bulunmuyor.")
     st.stop()
 
-# --- MAKİNE DETAY & İŞLEM EKRANI ---
+# --- SEÇİLİ MAKİNE EKRANI ---
 secili_makine_kaydi = user_machines[user_machines['id'] == st.session_state.secili_makine_id]
 if secili_makine_kaydi.empty:
     st.warning("Seçilen makine bulunamadı.")
@@ -283,7 +304,7 @@ if secili_makine_kaydi.empty:
 
 m_detay = secili_makine_kaydi.iloc[0]
 
-# Üst Başlık ve Doğrudan Basmalı Geri Dön Butonu
+# Üst Başlık ve Geri Dön Butonu
 col_baslik, col_buton = st.columns([3, 1])
 with col_baslik:
     st.markdown(f"## 📍 Aktif Makine: **{m_detay['name']} — `{m_detay['code']}`**")
@@ -302,9 +323,9 @@ st.markdown("---")
 
 tab1, tab2, tab3 = st.tabs(["➕ Yeni Bakım/Arıza Girişi", "📋 Geçmiş Kayıtlar", "📥 Excel Raporu"])
 
-# YENİ KAYIT
+# TAB 1: YENİ KAYIT
 with tab1:
-    st.subheader(f"{m_detay['code']} İçin Yeni Arıza / Bakım Kaydı")
+    st.subheader(f"{m_detay['code']} İçin Yeni Kayıt Girişi")
     with st.form("yeni_kayit_formu", clear_on_submit=True):
         col_tarih, col_saat = st.columns(2)
         girilen_tarih = col_tarih.date_input("İşlem Tarihi", value=datetime.date.today())
@@ -325,6 +346,8 @@ with tab1:
             else:
                 tarih_saat_str = f"{girilen_tarih.strftime('%Y-%m-%d')} {girilen_saat.strftime('%H:%M')}"
                 detay_metin = f"[{m_detay['code']}] {aciklama.strip()}"
+                
+                # Hem machine_id hem de metin bazlı çifte kayıt
                 conn = get_connection()
                 cur = conn.cursor()
                 cur.execute("""
@@ -336,19 +359,31 @@ with tab1:
                 st.success(f"✅ {m_detay['code']} için kayıt başarıyla işlendi!")
                 st.rerun()
 
-# GEÇMİŞ KAYITLAR
+# TAB 2: GEÇMİŞ KAYITLAR
 with tab2:
     st.subheader(f"{m_detay['code']} Geçmiş Bakım Kayıtları")
-    kayitlar = load_records(m_detay['code'])
+    kayitlar = load_records(int(m_detay['id']), m_detay['code'], m_detay['name'])
     if kayitlar.empty:
         st.info(f"{m_detay['code']} için henüz bir arıza kaydı bulunmuyor.")
     else:
-        st.dataframe(kayitlar.drop(columns=['id', 'parts_replaced']), use_container_width=True)
+        # Metindeki [KOD] başlığını temizleyip sade gösterir
+        kayitlar_goster = kayitlar.copy()
+        kayitlar_goster['description'] = kayitlar_goster['description'].str.replace(f"[{m_detay['code']}]", "", regex=False).str.strip()
+        st.dataframe(
+            kayitlar_goster.drop(columns=['id']).rename(columns={
+                'record_date': 'Tarih / Saat',
+                'record_type': 'İşlem Türü',
+                'description': 'Müdahale Açıklaması',
+                'parts_replaced': 'Değişen Parça',
+                'technician': 'Usta / Teknisyen'
+            }), 
+            use_container_width=True
+        )
 
-# EXCEL RAPORU
+# TAB 3: EXCEL RAPORU
 with tab3:
     st.subheader("Kayıtları İndir")
-    kayitlar = load_records(m_detay['code'])
+    kayitlar = load_records(int(m_detay['id']), m_detay['code'], m_detay['name'])
     if kayitlar.empty:
         st.info("İndirilecek kayıt bulunmuyor.")
     else:
@@ -362,7 +397,7 @@ with tab3:
             use_container_width=True
         )
 
-# Sayfa Altı Basmalı Geri Dön Butonu
+# Sayfa Altı Geri Dön Butonu
 st.divider()
 if st.button("⬅️ Ana Sayfaya Dön (Son 20 Kayıt)", key="bottom_home_btn", use_container_width=True):
     st.session_state.secili_makine_id = None
