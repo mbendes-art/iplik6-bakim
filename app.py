@@ -30,6 +30,7 @@ def get_connection():
     return psycopg2.connect(DB_URI, connect_timeout=10)
 
 def dogal_sirala(metin):
+    """Metin içerisindeki sayıları sayısal olarak ayırarak doğal sıralama sağlar (PENYE-2, PENYE-10'dan önce gelir)."""
     return [int(p) if p.isdigit() else p.lower() for p in re.split(r'(\d+)', str(metin))]
 
 # --- KULLANICI LİSTELERİ VE YETKİLER ---
@@ -174,7 +175,7 @@ else:
 
 # Sol Arama Alanı
 st.sidebar.header("🔍 Hızlı Makine Arama")
-search_term = st.sidebar.text_input("Makine Adı veya No", placeholder="Örn: RING, CER, 5...").strip().lower()
+search_term = st.sidebar.text_input("Makine Adı veya No", placeholder="Örn: PENYE, RING, 5...").strip().lower()
 
 user_machines['secim_adi'] = user_machines['name'] + " (" + user_machines['code'] + ")"
 sirali_makineler = sorted(user_machines['secim_adi'].unique(), key=dogal_sirala)
@@ -212,7 +213,6 @@ def load_records(machine_id, machine_code):
         return pd.DataFrame()
 
 def load_filtered_recent_20(filter_query=""):
-    """Genel veya aranan kelimeye (örn: RING) göre son 20 kaydı getirir."""
     try:
         conn = get_connection()
         cur = conn.cursor()
@@ -254,7 +254,7 @@ def load_filtered_recent_20(filter_query=""):
 # --- ANA EKRAN ---
 st.title("🧵 İplik-6 | Arıza & Bakım Takip Portalı")
 
-# HIZLI ARAMA YAPILDIĞINDA (Örn: RING yazıldığında)
+# HIZLI ARAMA YAPILDIĞINDA (Örn: PENYE yazıldığında)
 if search_term:
     filtreli_df = user_machines[
         user_machines['name'].str.lower().str.contains(search_term) |
@@ -262,11 +262,14 @@ if search_term:
         user_machines['no'].str.lower().str.contains(search_term)
     ].copy()
 
+    # DOĞAL SAYISAL SIRALAMA (1, 2, 3 ... 9, 10, 15)
+    filtreli_df['sira_anahtari'] = filtreli_df['code'].apply(dogal_sirala)
+    filtreli_df = filtreli_df.sort_values(by='sira_anahtari').drop(columns=['sira_anahtari'])
+
     st.markdown(f"### 🔍 **'{search_term.upper()}'** Makineleri ({len(filtreli_df)} Makine Bulundu)")
     if filtreli_df.empty:
         st.warning(f"Yetki alanınızda '{search_term}' ile eşleşen makine bulunamadı.")
     else:
-        # Butonlar
         cols = st.columns(3)
         for idx, (_, row) in enumerate(filtreli_df.iterrows()):
             col = cols[idx % 3]
@@ -280,7 +283,7 @@ if search_term:
 
     st.markdown("---")
 
-# Henüz makineye tıklanmamışsa: Son 20 Kayıt Tablosu
+# Henüz makine seçilmemişse Ana Ekran
 if not st.session_state.secili_makine_id:
     if search_term:
         st.subheader(f"🔔 '{search_term.upper()}' İçin Son Girilen Bakım & Arıza Kayıtları")
@@ -326,7 +329,7 @@ st.markdown("---")
 
 tab1, tab2, tab3 = st.tabs(["➕ Yeni Bakım/Arıza Girişi", "📋 Geçmiş Kayıtlar", "📥 Excel Raporu"])
 
-# YENİ KAYIT
+# TAB 1: YENİ KAYIT
 with tab1:
     st.subheader(f"{m_detay['code']} İçin Yeni Arıza / Bakım Kaydı")
     with st.form("yeni_kayit_formu", clear_on_submit=True):
@@ -360,7 +363,7 @@ with tab1:
                 st.success(f"✅ {m_detay['code']} için kayıt başarıyla işlendi!")
                 st.rerun()
 
-# GEÇMİŞ KAYITLAR
+# TAB 2: GEÇMİŞ KAYITLAR
 with tab2:
     st.subheader(f"{m_detay['code']} Geçmiş Bakım Kayıtları")
     kayitlar = load_records(int(m_detay['id']), m_detay['code'])
@@ -380,7 +383,7 @@ with tab2:
             use_container_width=True
         )
 
-# EXCEL RAPORU
+# TAB 3: EXCEL RAPORU
 with tab3:
     st.subheader("Kayıtları İndir")
     kayitlar = load_records(int(m_detay['id']), m_detay['code'])
