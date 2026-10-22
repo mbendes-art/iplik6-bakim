@@ -120,9 +120,9 @@ with st.sidebar:
     elif st.session_state.username in RING_BOBIN_KULLANICILARI:
         st.info("🏭 Yetki Alanı: **Ring & Bobin**")
         
-    # Makine seçilmişse sol menüye de ana ekran butonu koyalım
+    # Yan menüde basmalı ana sayfa butonu
     if st.session_state.secili_makine_id:
-        if st.button("🏠 Ana Ekrana Dön", use_container_width=True):
+        if st.button("⬅️ Ana Sayfaya Dön", key="side_home_btn", use_container_width=True):
             st.session_state.secili_makine_id = None
             st.rerun()
 
@@ -232,7 +232,7 @@ def load_recent_20():
 # --- ANA EKRAN BAŞLIĞI ---
 st.title("🧵 İplik-6 | Arıza & Bakım Takip Portalı")
 
-# Arama Sonuçları (Sadece kutuya yazıldığında gelir)
+# Arama Sonuçları (Sadece kutuya harf/sayı girildiğinde butonlar görünür)
 if search_term:
     filtreli_df = user_machines[
         user_machines['name'].str.lower().str.contains(search_term) |
@@ -257,38 +257,38 @@ if search_term:
 
     st.divider()
 
-# Henüz makine seçilmemişse veya ana ekrandaysak:
+# Henüz hiçbir makine seçilmemişse doğrudan bu karşılama ekranı görünür:
 if not st.session_state.secili_makine_id:
     if not search_term:
-        st.info("👈 İşlem yapmak için sol menüden makine arayabilir veya açılır kutudan makine seçebilirsiniz.")
+        st.info("👈 İşlem yapmak için sol menüden makine adı/no aratın veya açılır kutudan makine seçin.")
     else:
-        st.info("👆 Lütfen yukarıdaki arama sonuçlarından işlem yapmak istediğiniz **makineye dokunun**.")
+        st.info("👆 Lütfen yukarıdaki arama sonuçlarından işlem yapacağınız **makine butonuna basınız**.")
         
     st.subheader("🔔 En Son Girilen 20 Bakım & Arıza Kaydı")
     son_kayitlar = load_recent_20()
     if not son_kayitlar.empty:
         st.dataframe(son_kayitlar, use_container_width=True, hide_index=True)
     else:
-        st.info("Henüz arıza veya bakım kaydı bulunmuyor.")
+        st.info("Henüz kayıt bulunmuyor.")
     st.stop()
 
 # --- MAKİNE DETAY & İŞLEM EKRANI ---
 secili_makine_kaydi = user_machines[user_machines['id'] == st.session_state.secili_makine_id]
 if secili_makine_kaydi.empty:
     st.warning("Seçilen makine bulunamadı.")
-    if st.button("🏠 Ana Ekrana Dön"):
+    if st.button("⬅️ Ana Sayfaya Dön", key="err_home_btn"):
         st.session_state.secili_makine_id = None
         st.rerun()
     st.stop()
 
 m_detay = secili_makine_kaydi.iloc[0]
 
-# Üst Bilgi Başlığı ve Ana Ekrana Dönüş Butonu
+# Üst Başlık ve Doğrudan Basmalı Geri Dön Butonu
 col_baslik, col_buton = st.columns([3, 1])
 with col_baslik:
     st.markdown(f"## 📍 Aktif Makine: **{m_detay['name']} — `{m_detay['code']}`**")
 with col_buton:
-    if st.button("🏠 Ana Ekrana Dön (Son 20)", use_container_width=True):
+    if st.button("⬅️ Ana Sayfaya Dön", key="top_home_btn", use_container_width=True):
         st.session_state.secili_makine_id = None
         st.rerun()
 
@@ -318,9 +318,6 @@ with tab1:
         parcalar = st.text_input("Değişen Yedek Parça", placeholder="Örn: Kayış (SPZ 1250), Rulman 6204...")
         teknisyen = st.text_input("İşlemi Yapan Usta", value=st.session_state.username)
 
-        # Ana ekrana dönme seçeneği
-        ana_ekrana_don = st.checkbox("Kaydettikten sonra doğrudan ana ekrana (Son 20 Arıza tablosuna) dön", value=True)
-
         kaydet = st.form_submit_button("💾 Kaydı Sisteme Kaydet", use_container_width=True, type="primary")
         if kaydet:
             if not aciklama.strip():
@@ -337,10 +334,6 @@ with tab1:
                 conn.commit()
                 conn.close()
                 st.success(f"✅ {m_detay['code']} için kayıt başarıyla işlendi!")
-                
-                # Checkbox seçiliyse ana ekrana döner, değilse aynı makinede kalır
-                if ana_ekrana_don:
-                    st.session_state.secili_makine_id = None
                 st.rerun()
 
 # GEÇMİŞ KAYITLAR
@@ -368,3 +361,9 @@ with tab3:
             file_name=f"{m_detay['code']}_Rapor.xlsx", 
             use_container_width=True
         )
+
+# Sayfa Altı Basmalı Geri Dön Butonu
+st.divider()
+if st.button("⬅️ Ana Sayfaya Dön (Son 20 Kayıt)", key="bottom_home_btn", use_container_width=True):
+    st.session_state.secili_makine_id = None
+    st.rerun()
