@@ -121,8 +121,9 @@ with st.sidebar:
     elif st.session_state.username in RING_BOBIN_KULLANICILARI:
         st.info("🏭 Yetki Alanı: **Ring & Bobin**")
         
+    # Yan menüde her an erişilebilir Ana Menü butonu
     if st.session_state.secili_makine_id:
-        if st.button("⬅️ Ana Sayfaya Dön", key="side_home_btn", use_container_width=True):
+        if st.button("⬅️ Ana Menüye Dön", key="side_home_btn", use_container_width=True):
             st.session_state.secili_makine_id = None
             st.rerun()
 
@@ -254,7 +255,7 @@ def load_filtered_recent_20(filter_query=""):
 # --- ANA EKRAN ---
 st.title("🧵 İplik-6 | Arıza & Bakım Takip Portalı")
 
-# HIZLI ARAMA YAPILDIĞINDA (Örn: PENYE yazıldığında)
+# HIZLI ARAMA YAPILDIĞINDA
 if search_term:
     filtreli_df = user_machines[
         user_machines['name'].str.lower().str.contains(search_term) |
@@ -262,7 +263,7 @@ if search_term:
         user_machines['no'].str.lower().str.contains(search_term)
     ].copy()
 
-    # DOĞAL SAYISAL SIRALAMA (1, 2, 3 ... 9, 10, 15)
+    # DOĞAL SAYISAL SIRALAMA (1, 2, 3 ... 10, 15)
     filtreli_df['sira_anahtari'] = filtreli_df['code'].apply(dogal_sirala)
     filtreli_df = filtreli_df.sort_values(by='sira_anahtari').drop(columns=['sira_anahtari'])
 
@@ -303,21 +304,19 @@ if not st.session_state.secili_makine_id:
 secili_makine_kaydi = user_machines[user_machines['id'] == st.session_state.secili_makine_id]
 if secili_makine_kaydi.empty:
     st.warning("Seçilen makine bulunamadı.")
-    if st.button("⬅️ Ana Sayfaya Dön", key="err_home_btn"):
+    if st.button("⬅️ Ana Menüye Dön", key="err_home_btn", use_container_width=True):
         st.session_state.secili_makine_id = None
         st.rerun()
     st.stop()
 
 m_detay = secili_makine_kaydi.iloc[0]
 
-# Üst Başlık ve Geri Dön Butonu
-col_baslik, col_buton = st.columns([3, 1])
-with col_baslik:
-    st.markdown(f"## 📍 Aktif Makine: **{m_detay['name']} — `{m_detay['code']}`**")
-with col_buton:
-    if st.button("⬅️ Ana Sayfaya Dön", key="top_home_btn", use_container_width=True):
-        st.session_state.secili_makine_id = None
-        st.rerun()
+# MOBİLDE EN ÜSTTE DOĞRUDAN GÖRÜNEN BÜYÜK BASMALI BUTON
+if st.button("⬅️ ANA MENÜYE DÖN (TÜM LİSTE & SON 20)", key="top_home_btn", use_container_width=True, type="secondary"):
+    st.session_state.secili_makine_id = None
+    st.rerun()
+
+st.markdown(f"## 📍 Aktif Makine: **{m_detay['name']} — `{m_detay['code']}`**")
 
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Marka", str(m_detay['brand']) or "-")
@@ -400,8 +399,8 @@ with tab3:
             use_container_width=True
         )
 
-# Sayfa Altı Geri Dön Butonu
+# Sayfa Altı Geri Dön Butonu (Mobilde form doldurulduktan sonra aşağıda da kolay erişim için)
 st.divider()
-if st.button("⬅️ Ana Sayfaya Dön (Son 20 Kayıt)", key="bottom_home_btn", use_container_width=True):
+if st.button("⬅️ ANA MENÜYE DÖN (TÜM LİSTE & SON 20)", key="bottom_home_btn", use_container_width=True):
     st.session_state.secili_makine_id = None
     st.rerun()
