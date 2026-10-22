@@ -32,7 +32,6 @@ def get_connection():
 
 # --- DOĞAL SAYISAL SIRALAMA FONKSİYONU ---
 def dogal_sirala(metin):
-    """Metin içindeki sayıları sayısal olarak sıralar (RING-2, RING-10'dan önce gelir)."""
     return [int(parca) if parca.isdigit() else parca.lower() for parca in re.split(r'(\d+)', str(metin))]
 
 # --- KULLANICI LİSTELERİ VE YETKİLER ---
@@ -122,7 +121,7 @@ with st.sidebar:
         st.rerun()
     st.divider()
 
-# --- MAKİNE LİSTESİNİ OKUMA (EXCEL VEYA VERİTABANI) ---
+# --- MAKİNE LİSTESİNİ OKUMA ---
 @st.cache_data(ttl=60)
 def load_all_machines():
     if os.path.exists("iplik6MakineListesi.xlsx"):
@@ -178,14 +177,17 @@ if user_machines.empty:
 # Doğal Sıralı Seçim Listesi Oluşturma
 user_machines['secim_adi'] = user_machines['name'] + " (" + user_machines['code'] + ")"
 sirali_makineler = sorted(user_machines['secim_adi'].unique(), key=dogal_sirala)
-
 secenekler = dict(zip(user_machines['secim_adi'], user_machines['id']))
 
-secilen_isim = st.sidebar.selectbox("Makine Listesi", sirali_makineler)
-secilen_id = secenekler[secilen_isim]
-m_detay = user_machines[user_machines['id'] == secilen_id].iloc[0]
+# Başlangıçta boş seçim (index=None)
+secilen_isim = st.sidebar.selectbox(
+    "Makine Listesi", 
+    sirali_makineler, 
+    index=None, 
+    placeholder="Makine seçiniz..."
+)
 
-# --- VERİTABANI İŞLEMLERİ (KAYITLAR) ---
+# --- VERİTABANI FONKSİYONLARI ---
 def load_records(machine_code):
     try:
         conn = get_connection()
@@ -225,17 +227,21 @@ def load_recent_20():
 # --- ANA EKRAN ---
 st.title("🧵 İplik-6 | Arıza & Bakım Takip Portalı")
 
-# Son 20 Kayıt Özeti
-with st.expander("🔔 En Son Girilen 20 Kayıt (Genel Bakış)", expanded=False):
+# Makine seçilmediyse karşılayacak ekran:
+if not secilen_isim:
+    st.info("👈 İşlem yapmak veya geçmişi görmek için lütfen sol menüden bir **Makine Seçiniz**.")
+    st.subheader("🔔 En Son Girilen Bakım & Arıza Kayıtları")
     son_kayitlar = load_recent_20()
     if son_kayitlar.empty:
-        st.info("Henüz arıza veya bakım kaydı bulunmuyor.")
+        st.info("Henüz kayıt bulunmuyor.")
     else:
         st.dataframe(son_kayitlar, use_container_width=True, hide_index=True)
+    st.stop()
 
-st.divider()
+# Makine seçildiyse detay ve formları göster:
+secilen_id = secenekler[secilen_isim]
+m_detay = user_machines[user_machines['id'] == secilen_id].iloc[0]
 
-# Seçili Makine Detayı
 st.markdown(f"### 📍 {m_detay['name']} — `{m_detay['code']}`")
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Marka", str(m_detay['brand']) or "-")
