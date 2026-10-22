@@ -16,7 +16,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# Arayüzü kilitlemeyen sadeleştirilmiş stil
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
@@ -30,9 +29,9 @@ DB_URI = "postgresql://postgres.ahvsruxighjrbwbepqej:iplik6-bakim@aws-0-ap-north
 def get_connection():
     return psycopg2.connect(DB_URI, connect_timeout=10)
 
-# --- DOĞAL SAYISAL SIRALAMA FONKSİYONU ---
+# Doğal sıralama fonksiyonu (CER-1, CER-2 ... CER-10)
 def dogal_sirala(metin):
-    return [int(parca) if parca.isdigit() else parca.lower() for parca in re.split(r'(\d+)', str(metin))]
+    return [int(p) if p.isdigit() else p.lower() for p in re.split(r'(\d+)', str(metin))]
 
 # --- KULLANICI LİSTELERİ VE YETKİLER ---
 ORTAK_SIFRE = "iplik6"
@@ -58,7 +57,6 @@ RING_BOBIN_KULLANICILARI = [
 
 YETKILI_KULLANICILAR = TAM_YETKILI_YONETICILER + IHZARAT_KULLANICILARI + RING_BOBIN_KULLANICILARI + ["f_duran"]
 
-# Filtre Anahtar Kelimeleri
 IHZARAT_KELIMELERI = [
     "UNIFLOC", "UNICLEAN", "UNIMİX", "UNISTORE", "KONDENSER",
     "VSI", "TELEF", "TARAK", "CER", "OMEGALLAP", "SERVOLAB",
@@ -67,10 +65,13 @@ IHZARAT_KELIMELERI = [
 
 RING_BOBIN_KELIMELERI = ["RING", "BOBİN", "BOBIN", "PAKETLEME"]
 
-# --- OTURUM (LOGIN) YÖNETİMİ ---
+# --- OTURUM YÖNETİMİ ---
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.username = ""
+
+if "secili_makine_id" not in st.session_state:
+    st.session_state.secili_makine_id = None
 
 def login():
     if os.path.exists("logo.png"):
@@ -88,6 +89,7 @@ def login():
             if username in YETKILI_KULLANICILAR and (password == ORTAK_SIFRE or password == "iplik123"):
                 st.session_state.logged_in = True
                 st.session_state.username = username
+                st.session_state.secili_makine_id = None
                 st.success("Giriş başarılı!")
                 st.rerun()
             else:
@@ -112,16 +114,15 @@ with st.sidebar:
         st.info("🏭 Yetki Alanı: **İhzarat**")
     elif st.session_state.username in RING_BOBIN_KULLANICILARI:
         st.info("🏭 Yetki Alanı: **Ring & Bobin**")
-    else:
-        st.info("🏭 Yetki Alanı: **Operasyon**")
         
     if st.button("Çıkış Yap"):
         st.session_state.logged_in = False
         st.session_state.username = ""
+        st.session_state.secili_makine_id = None
         st.rerun()
     st.divider()
 
-# --- MAKİNE LİSTESİNİ OKUMA ---
+# --- MAKİNE LİSTESİ YÜKLEME ---
 @st.cache_data(ttl=60)
 def load_all_machines():
     if os.path.exists("iplik6MakineListesi.xlsx"):
@@ -129,6 +130,7 @@ def load_all_machines():
         df_excel = df_excel.fillna("")
         df = pd.DataFrame()
         df['name'] = df_excel['MAKİNE ADI'].astype(str).str.strip()
+        df['no'] = df_excel['İŞLETME NO'].astype(str).str.strip()
         df['code'] = df_excel['MAKİNE ADI'].astype(str).str.strip() + " - " + df_excel['İŞLETME NO'].astype(str).str.strip()
         df['brand'] = df_excel['MARKA'].astype(str).str.strip()
         df['model_year'] = df_excel['MODEL'].astype(str).str.replace(".0", "", regex=False).str.strip()
@@ -145,7 +147,9 @@ def load_all_machines():
         colnames = [desc[0] for desc in cur.description]
         cur.close()
         conn.close()
-        return pd.DataFrame(rows, columns=colnames)
+        df = pd.DataFrame(rows, columns=colnames)
+        df['no'] = ""
+        return df
 
 all_machines = load_all_machines()
 
@@ -160,34 +164,36 @@ elif user in RING_BOBIN_KULLANICILARI:
 else:
     user_machines = all_machines.copy()
 
-# Arama Filtresi
-st.sidebar.header("Makine Seçimi")
-search_term = st.sidebar.text_input("🔍 Hızlı Arama", placeholder="Makine adı, no...").strip().lower()
+# Arama Alanı
+st.sidebar.header("🔍 Hızlı Makine Arama")
+search_term = st.sidebar.text_input("Makine Adı veya No Yazın", placeholder="Örn: CER, RING, 5...").strip().lower()
 
+# Filtrelenmiş Liste
 if search_term:
-    user_machines = user_machines[
+    filtreli_df = user_machines[
         user_machines['name'].str.lower().str.contains(search_term) |
-        user_machines['code'].str.lower().str.contains(search_term)
-    ]
+        user_machines['code'].str.lower().str.contains(search_term) |
+        user_machines['no'].str.lower().str.contains(search_term)
+    ].copy()
+else:
+    filtreli_df = user_machines.copy()
 
-if user_machines.empty:
-    st.warning("Erişim yetkiniz dahilinde eşleşen makine bulunamadı.")
-    st.stop()
+filtreli_df['secim_adi'] = filtreli_df['name'] + " (" + filtreli_df['code'] + ")"
+sirali_makineler = sorted(filtreli_df['secim_adi'].unique(), key=dogal_sirala)
+secenekler = dict(zip(filtreli_df['secim_adi'], filtreli_df['id']))
 
-# Doğal Sıralı Seçim Listesi Oluşturma
-user_machines['secim_adi'] = user_machines['name'] + " (" + user_machines['code'] + ")"
-sirali_makineler = sorted(user_machines['secim_adi'].unique(), key=dogal_sirala)
-secenekler = dict(zip(user_machines['secim_adi'], user_machines['id']))
-
-# Başlangıçta boş seçim (index=None)
-secilen_isim = st.sidebar.selectbox(
-    "Makine Listesi", 
+# Sol menüdeki açılır kutu
+secilen_kutu = st.sidebar.selectbox(
+    "Makine Seçim Listesi", 
     sirali_makineler, 
     index=None, 
-    placeholder="Makine seçiniz..."
+    placeholder="Seçim yapınız..."
 )
 
-# --- VERİTABANI FONKSİYONLARI ---
+if secilen_kutu:
+    st.session_state.secili_makine_id = secenekler[secilen_kutu]
+
+# --- VERİTABANI İŞLEMLERİ (KAYITLAR) ---
 def load_records(machine_code):
     try:
         conn = get_connection()
@@ -224,25 +230,39 @@ def load_recent_20():
     except:
         return pd.DataFrame()
 
-# --- ANA EKRAN ---
+# --- ANA EKRAN GÖRÜNÜMÜ ---
 st.title("🧵 İplik-6 | Arıza & Bakım Takip Portalı")
 
-# Makine seçilmediyse karşılayacak ekran:
-if not secilen_isim:
-    st.info("👈 İşlem yapmak veya geçmişi görmek için lütfen sol menüden bir **Makine Seçiniz**.")
-    st.subheader("🔔 En Son Girilen Bakım & Arıza Kayıtları")
-    son_kayitlar = load_recent_20()
-    if son_kayitlar.empty:
-        st.info("Henüz kayıt bulunmuyor.")
+# Arama yapıldığında bulunan tüm makineleri ana ekranda kart/buton olarak listeleme
+if search_term:
+    st.markdown(f"### 🔍 **'{search_term.upper()}'** Arama Sonuçları ({len(filtreli_df)} Makine Bulundu):")
+    if filtreli_df.empty:
+        st.warning(f"Yetki alanınızda '{search_term}' ile eşleşen bir makine bulunamadı.")
     else:
+        # 3 sütun halinde butonlar
+        cols = st.columns(3)
+        for idx, (_, row) in enumerate(filtreli_df.iterrows()):
+            col = cols[idx % 3]
+            btn_label = f"⚙️ {row['code']} ({row['machine_type']})"
+            if col.button(btn_label, key=f"btn_search_{row['id']}", use_container_width=True):
+                st.session_state.secili_makine_id = row['id']
+                st.rerun()
+
+st.divider()
+
+# Henüz hiçbir makine seçilmemişse
+if not st.session_state.secili_makine_id:
+    st.info("👈 Sol taraftaki arama kutusuna yazarak veya makine listesinden işlem yapmak istediğiniz makineyi seçin.")
+    st.subheader("🔔 Son Girilen 20 Kayıt")
+    son_kayitlar = load_recent_20()
+    if not son_kayitlar.empty:
         st.dataframe(son_kayitlar, use_container_width=True, hide_index=True)
     st.stop()
 
-# Makine seçildiyse detay ve formları göster:
-secilen_id = secenekler[secilen_isim]
-m_detay = user_machines[user_machines['id'] == secilen_id].iloc[0]
+# Makine seçildiğinde gösterilecek alan:
+m_detay = user_machines[user_machines['id'] == st.session_state.secili_makine_id].iloc[0]
 
-st.markdown(f"### 📍 {m_detay['name']} — `{m_detay['code']}`")
+st.markdown(f"### 📍 Seçili Makine: **{m_detay['name']} — `{m_detay['code']}`**")
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Marka", str(m_detay['brand']) or "-")
 c2.metric("Tip / Model", f"{m_detay['machine_type']} ({m_detay['model_year']})")
@@ -261,7 +281,7 @@ with tab1:
         st.dataframe(kayitlar.drop(columns=['id', 'parts_replaced']), use_container_width=True)
 
 with tab2:
-    st.subheader("Yeni Kayıt Ekle")
+    st.subheader(f"{m_detay['code']} İçin Yeni Kayıt Ekle")
     with st.form("yeni_kayit_formu", clear_on_submit=True):
         col_tarih, col_saat = st.columns(2)
         girilen_tarih = col_tarih.date_input("İşlem Tarihi", value=datetime.date.today())
