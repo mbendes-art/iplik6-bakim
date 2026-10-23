@@ -33,9 +33,14 @@ def dogal_sirala(metin):
     """Metin içerisindeki sayıları sayısal olarak ayırarak doğal sıralama sağlar (PENYE-2, PENYE-10'dan önce gelir)."""
     return [int(p) if p.isdigit() else p.lower() for p in re.split(r'(\d+)', str(metin))]
 
+# --- OTURUM VE SAYFA DURUM YÖNETİMİ ---
+if "search_counter" not in st.session_state:
+    st.session_state.search_counter = 0
+
 def ana_sayfaya_don():
     st.session_state.secili_makine_id = None
-    st.session_state.search_term = ""
+    # Arama kutusunu hatasız sıfırlamak için anahtarı artırıyoruz
+    st.session_state.search_counter += 1
     st.rerun()
 
 # --- KULLANICI LİSTELERİ VE YETKİLER ---
@@ -80,9 +85,6 @@ else:
 if "secili_makine_id" not in st.session_state:
     st.session_state.secili_makine_id = None
 
-if "search_term" not in st.session_state:
-    st.session_state.search_term = ""
-
 def normalize_text(text):
     if not text:
         return ""
@@ -108,7 +110,6 @@ def login():
                 st.session_state.logged_in = True
                 st.session_state.username = username
                 st.session_state.secili_makine_id = None
-                st.session_state.search_term = ""
                 st.query_params["user"] = username
                 st.success("Giriş başarılı!")
                 st.rerun()
@@ -134,17 +135,12 @@ with st.sidebar:
         st.info("🏭 Yetki Alanı: **İhzarat**")
     elif st.session_state.username in RING_BOBIN_KULLANICILARI:
         st.info("🏭 Yetki Alanı: **Ring & Bobin**")
-        
-    # Her an ana sayfaya dönülebilmesi için sol menünün en üstündeki buton
-    if st.session_state.secili_makine_id is not None or st.session_state.search_term:
-        if st.button("⬅️ Ana Sayfaya Dön (Son 20)", key="side_home_btn", use_container_width=True, type="primary"):
-            ana_sayfaya_don()
 
+    # Çıkış Yap Butonu
     if st.button("Çıkış Yap", use_container_width=True):
         st.session_state.logged_in = False
         st.session_state.username = ""
         st.session_state.secili_makine_id = None
-        st.session_state.search_term = ""
         if "user" in st.query_params:
             del st.query_params["user"]
         st.rerun()
@@ -190,22 +186,26 @@ elif user in RING_BOBIN_KULLANICILARI:
 else:
     user_machines = all_machines.copy()
 
-# Sol Arama Alanı
+# Sol Arama Alanı (Sayaçlı dinamik key sayesinde sıfırlama hatası vermez)
 st.sidebar.header("🔍 Hızlı Makine Arama")
-search_term = st.sidebar.text_input("Makine Adı veya No", key="search_term", placeholder="Örn: PENYE, RING, 5...").strip().lower()
+search_input_key = f"search_input_{st.session_state.search_counter}"
+search_term = st.sidebar.text_input("Makine Adı veya No", key=search_input_key, placeholder="Örn: PENYE, RING, 5...").strip().lower()
 
-if search_term:
-    if st.sidebar.button("❌ Aramayı Temizle (Ana Sayfa)", key="clear_search_side", use_container_width=True):
+# Yan menüde arama varken veya makine seçiliyken temizleme butonu
+if st.session_state.secili_makine_id is not None or search_term:
+    if st.sidebar.button("⬅️ Ana Sayfaya Dön (Sıfırla)", key="side_clear_btn", use_container_width=True, type="primary"):
         ana_sayfaya_don()
 
 user_machines['secim_adi'] = user_machines['name'] + " (" + user_machines['code'] + ")"
 sirali_makineler = sorted(user_machines['secim_adi'].unique(), key=dogal_sirala)
 secenekler = dict(zip(user_machines['secim_adi'], user_machines['id']))
 
+select_box_key = f"select_box_{st.session_state.search_counter}"
 secilen_kutu = st.sidebar.selectbox(
     "Veya Listeden Seçiniz", 
     sirali_makineler, 
     index=None, 
+    key=select_box_key,
     placeholder="Açılır listeden seç..."
 )
 
@@ -283,7 +283,6 @@ if search_term:
         user_machines['no'].str.lower().str.contains(search_term)
     ].copy()
 
-    # DOĞAL SAYISAL SIRALAMA (1, 2, 3 ... 10, 15)
     filtreli_df['sira_anahtari'] = filtreli_df['code'].apply(dogal_sirala)
     filtreli_df = filtreli_df.sort_values(by='sira_anahtari').drop(columns=['sira_anahtari'])
 
@@ -310,7 +309,7 @@ if search_term:
 
     st.markdown("---")
 
-# Henüz hiçbir makine seçilmemişse Ana Ekran
+# Henüz hiçbir makine seçilmemişse
 if not st.session_state.secili_makine_id:
     if search_term:
         st.subheader(f"🔔 '{search_term.upper()}' İçin Son Girilen Bakım & Arıza Kayıtları")
@@ -325,7 +324,7 @@ if not st.session_state.secili_makine_id:
     else:
         st.info("Bu filtreye ait henüz kayıt bulunmuyor.")
 
-    # Arama sayfasındayken de listenin en altında geri dönüş butonu
+    # Arama sonuçlarının en altındaki buton
     if search_term:
         st.divider()
         if st.button("⬅️ Ana Sayfaya Dön (Aramayı Kapat)", key="search_close_bottom", use_container_width=True):
