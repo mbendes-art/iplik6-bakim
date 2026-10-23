@@ -32,6 +32,10 @@ def get_connection():
 def dogal_sirala(metin):
     return [int(p) if p.isdigit() else p.lower() for p in re.split(r'(\d+)', str(metin))]
 
+def ana_sayfaya_don():
+    st.session_state.secili_makine_id = None
+    st.rerun()
+
 # --- KULLANICI LİSTELERİ VE YETKİLER ---
 TAM_YETKILI_YONETICILER = [
     "mbendes", "r_şahin", "r_sahin", "n_ertürk", "n_erturk", "g_albayrak"
@@ -62,8 +66,7 @@ IHZARAT_KELIMELERI = [
 
 RING_BOBIN_KELIMELERI = ["RING", "BOBİN", "BOBIN", "PAKETLEME"]
 
-# --- KALICI OTURUM YÖNETİMİ (ANDROID / MOBİL KAPANMALARINA KARŞI) ---
-# Tarayıcı kapansa bile URL parametresinden kullanıcıyı hatırlar
+# --- KALICI OTURUM YÖNETİMİ ---
 if "user" in st.query_params and st.query_params["user"] in YETKILI_KULLANICILAR:
     st.session_state.logged_in = True
     st.session_state.username = st.query_params["user"]
@@ -100,7 +103,6 @@ def login():
                 st.session_state.logged_in = True
                 st.session_state.username = username
                 st.session_state.secili_makine_id = None
-                # Tarayıcıya oturumu kalıcı kaydet
                 st.query_params["user"] = username
                 st.success("Giriş başarılı!")
                 st.rerun()
@@ -127,16 +129,15 @@ with st.sidebar:
     elif st.session_state.username in RING_BOBIN_KULLANICILARI:
         st.info("🏭 Yetki Alanı: **Ring & Bobin**")
         
+    # Yan menüde her an görünen sabit ana sayfaya dön butonu
     if st.session_state.secili_makine_id:
-        if st.button("⬅️ Ana Menüye Dön", key="side_home_btn", use_container_width=True):
-            st.session_state.secili_makine_id = None
-            st.rerun()
+        if st.button("⬅️ Ana Sayfaya Dön (Son 20)", key="side_home_btn", use_container_width=True, type="primary"):
+            ana_sayfaya_don()
 
     if st.button("Çıkış Yap", use_container_width=True):
         st.session_state.logged_in = False
         st.session_state.username = ""
         st.session_state.secili_makine_id = None
-        # Oturum parametresini temizle
         if "user" in st.query_params:
             del st.query_params["user"]
         st.rerun()
@@ -260,7 +261,7 @@ def load_filtered_recent_20(filter_query=""):
     except:
         return pd.DataFrame()
 
-# --- ANA EKRAN ---
+# --- ANA EKRAN BAŞLIĞI ---
 st.title("🧵 İplik-6 | Arıza & Bakım Takip Portalı")
 
 # HIZLI ARAMA YAPILDIĞINDA
@@ -311,17 +312,15 @@ if not st.session_state.secili_makine_id:
 secili_makine_kaydi = user_machines[user_machines['id'] == st.session_state.secili_makine_id]
 if secili_makine_kaydi.empty:
     st.warning("Seçilen makine bulunamadı.")
-    if st.button("⬅️ Ana Menüye Dön", key="err_home_btn", use_container_width=True):
-        st.session_state.secili_makine_id = None
-        st.rerun()
+    if st.button("⬅️ Ana Sayfaya Dön", key="err_home_btn", use_container_width=True):
+        ana_sayfaya_don()
     st.stop()
 
 m_detay = secili_makine_kaydi.iloc[0]
 
-# MOBİLDE EN ÜSTTE BÜYÜK BASMALI BUTON
-if st.button("⬅️ ANA MENÜYE DÖN (TÜM LİSTE & SON 20)", key="top_home_btn", use_container_width=True, type="secondary"):
-    st.session_state.secili_makine_id = None
-    st.rerun()
+# 1. NOKTA: EN TEPEDE BÜYÜK DÖNÜŞ BUTONU
+if st.button("⬅️ ANA SAYFAYA DÖN (SON 20 & TÜM LİSTE)", key="top_big_home_btn", use_container_width=True, type="secondary"):
+    ana_sayfaya_don()
 
 st.markdown(f"## 📍 Aktif Makine: **{m_detay['name']} — `{m_detay['code']}`**")
 
@@ -337,7 +336,14 @@ tab1, tab2, tab3 = st.tabs(["➕ Yeni Bakım/Arıza Girişi", "📋 Geçmiş Kay
 
 # TAB 1: YENİ KAYIT
 with tab1:
-    st.subheader(f"{m_detay['code']} İçin Yeni Arıza / Bakım Kaydı")
+    c_form_title, c_form_btn = st.columns([3, 1])
+    with c_form_title:
+        st.subheader(f"{m_detay['code']} İçin Yeni Kayıt")
+    with c_form_btn:
+        # 2. NOKTA: FORMUN ÜSTÜNDE DÖNÜŞ BUTONU
+        if st.button("⬅️ Ana Sayfaya Dön", key="tab1_top_home", use_container_width=True):
+            ana_sayfaya_don()
+
     with st.form("yeni_kayit_formu", clear_on_submit=True):
         col_tarih, col_saat = st.columns(2)
         girilen_tarih = col_tarih.date_input("İşlem Tarihi", value=datetime.date.today())
@@ -371,7 +377,14 @@ with tab1:
 
 # TAB 2: GEÇMİŞ KAYITLAR
 with tab2:
-    st.subheader(f"{m_detay['code']} Geçmiş Bakım Kayıtları")
+    c_tab2_title, c_tab2_btn = st.columns([3, 1])
+    with c_tab2_title:
+        st.subheader(f"{m_detay['code']} Geçmiş Bakım Kayıtları")
+    with c_tab2_btn:
+        # 3. NOKTA: GEÇMİŞ KAYITLAR SEKME ÜSTÜ DÖNÜŞ BUTONU
+        if st.button("⬅️ Ana Sayfaya Dön", key="tab2_top_home", use_container_width=True):
+            ana_sayfaya_don()
+
     kayitlar = load_records(int(m_detay['id']), m_detay['code'])
     if kayitlar.empty:
         st.info(f"{m_detay['code']} için henüz bir arıza kaydı bulunmuyor.")
@@ -391,7 +404,14 @@ with tab2:
 
 # TAB 3: EXCEL RAPORU
 with tab3:
-    st.subheader("Kayıtları İndir")
+    c_tab3_title, c_tab3_btn = st.columns([3, 1])
+    with c_tab3_title:
+        st.subheader("Kayıtları İndir")
+    with c_tab3_btn:
+        # 4. NOKTA: RAPOR SEKME ÜSTÜ DÖNÜŞ BUTONU
+        if st.button("⬅️ Ana Sayfaya Dön", key="tab3_top_home", use_container_width=True):
+            ana_sayfaya_don()
+
     kayitlar = load_records(int(m_detay['id']), m_detay['code'])
     if kayitlar.empty:
         st.info("İndirilecek kayıt bulunmuyor.")
@@ -406,8 +426,7 @@ with tab3:
             use_container_width=True
         )
 
-# Sayfa Altı Geri Dön Butonu
+# 5. NOKTA: SAYFANIN EN ALTINDA GENİŞ DÖNÜŞ BUTONU
 st.divider()
-if st.button("⬅️ ANA MENÜYE DÖN (TÜM LİSTE & SON 20)", key="bottom_home_btn", use_container_width=True):
-    st.session_state.secili_makine_id = None
-    st.rerun()
+if st.button("⬅️ ANA SAYFAYA DÖN (SON 20 & TÜM LİSTE)", key="bottom_fixed_home_btn", use_container_width=True):
+    ana_sayfaya_don()
