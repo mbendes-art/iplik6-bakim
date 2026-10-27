@@ -144,6 +144,12 @@ with st.sidebar:
         if "user" in st.query_params:
             del st.query_params["user"]
         st.rerun()
+
+    # Canlı Veri Yenileme Butonu
+    if st.button("🔄 Verileri Yenile", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
+
     st.divider()
 
 # --- MAKİNE LİSTESİNİ ÇEKME ---
@@ -213,6 +219,7 @@ if secilen_kutu:
     st.session_state.secili_makine_id = secenekler[secilen_kutu]
 
 # --- VERİTABANI FONKSİYONLARI ---
+@st.cache_data(ttl=10)
 def load_records(machine_id, machine_code):
     try:
         conn = get_connection()
@@ -222,7 +229,7 @@ def load_records(machine_id, machine_code):
             FROM maintenance_records 
             WHERE machine_id = %s 
                OR parts_replaced ILIKE %s 
-               OR description ILIKE %s
+               OR description ILIKE %s 
             ORDER BY record_date DESC LIMIT 50
         """, (machine_id, f"%{machine_code}%", f"%{machine_code}%"))
         rows = cur.fetchall()
@@ -233,6 +240,7 @@ def load_records(machine_id, machine_code):
     except:
         return pd.DataFrame()
 
+@st.cache_data(ttl=10)
 def load_filtered_recent_20(filter_query=""):
     try:
         conn = get_connection()
@@ -241,7 +249,7 @@ def load_filtered_recent_20(filter_query=""):
             SELECT 
                 r.record_date AS "Tarih / Saat", 
                 r.record_type AS "İşlem Türü", 
-                COALESCE(m.code, '') AS "Makine",
+                COALESCE(m.code, '') AS "Makine", 
                 r.description AS "Açıklama / Müdahale", 
                 r.parts_replaced AS "Değişen Parça / Kod", 
                 r.technician AS "Teknisyen"
@@ -394,6 +402,8 @@ with tab1:
                 """, (int(m_detay['id']), islem_turu, detay_metin, f"{m_detay['code']} | {parcalar.strip()}", teknisyen.strip(), tarih_saat_str))
                 conn.commit()
                 conn.close()
+                # Yeni kayıt eklenince arayüzün anında güncellenmesi için önbelleği sıfırlıyoruz
+                st.cache_data.clear()
                 st.success(f"✅ {m_detay['code']} için kayıt başarıyla işlendi!")
                 st.rerun()
 
